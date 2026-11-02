@@ -14,11 +14,12 @@ export default function Navbar() {
   const currentPath = location.pathname;
 
   const links = [
-    { path: "/", label: "Dashboard" },
-    { path: "/predict", label: "Predict Risk" },
-    { path: "/routes", label: "Safe Routes" },
-    { path: "/heatmap", label: "Heatmap" },
-  ];
+  { path: "/welcome", label: "Welcome" },
+  { path: "/", label: "Dashboard" },
+  { path: "/predict", label: "Predict Risk" },
+  { path: "/routes", label: "Safe Routes" },
+  { path: "/heatmap", label: "Heatmap" },
+];
 
   return (
     <nav style={{ background: C.card, borderBottom: `1px solid ${C.border}`, height: 62, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 36px", flexShrink: 0 }}>
