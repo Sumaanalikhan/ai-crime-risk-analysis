@@ -2,14 +2,6 @@ import { useState } from "react";
 import { Shield, Info, CheckCircle } from 'lucide-react';
 import Navbar from '../components/Navbar';
 
-const C = {
-  bg: "#0F172A", card: "#1E293B", cardDeep: "#162032",
-  border: "rgba(255,255,255,0.08)", text: "#F1F5F9",
-  muted: "#94A3B8", dim: "#64748B", orange: "#F97316",
-  orangeBg: "rgba(249,115,22,0.10)", orangeBorder: "rgba(249,115,22,0.25)",
-  red: "#EF4444", amber: "#F59E0B", green: "#22C55E",
-};
-
 const AREAS = ["Gulshan-e-Iqbal", "Saddar", "Lyari", "Nazimabad", "DHA Phase 1"];
 const TIMES = ["Morning (6am–12pm)", "Afternoon (12pm–5pm)", "Evening (5pm–9pm)", "Night (9pm–6am)"];
 
@@ -22,66 +14,81 @@ export default function PredictRisk() {
   const analyze = () => {
     setLoading(true);
     setResult(false);
-    // Simulating an API call to your backend
     setTimeout(() => { setLoading(false); setResult(true); }, 1000);
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, color: C.text }}>
+    <div className="min-h-screen bg-[#0F172A] text-[#F1F5F9] flex flex-col">
       <Navbar />
 
-      <div style={{ maxWidth: 700, margin: "0 auto", padding: "56px 24px" }}>
-        <div style={{ textAlign: "center", marginBottom: 40 }}>
-          <span style={{ display: "inline-block", background: `${C.orange}18`, border: `1px solid ${C.orange}30`, borderRadius: 20, padding: "4px 13px", color: C.orange, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", marginBottom: 16 }}>
+      <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-12 lg:py-20">
+        <div className="text-center mb-12">
+          <span className="inline-block border border-[#F97316]/30 bg-[#F97316]/10 rounded-full px-4 py-1.5 text-[#F97316] text-xs font-bold tracking-widest mb-4">
             AI RISK PREDICTOR
           </span>
-          <h1 style={{ fontSize: 36, fontWeight: 900, margin: "0 0 12px", letterSpacing: "-0.025em" }}>
+          <h1 className="text-4xl lg:text-5xl font-black mb-4 tracking-tight">
             Check Crime Risk in Your Area
           </h1>
-          <p style={{ color: C.muted, fontSize: 15 }}>
+          <p className="text-[#94A3B8] text-base lg:text-lg max-w-xl mx-auto">
             Enter details below to receive an AI-powered risk assessment for any location in Karachi.
           </p>
         </div>
 
         {/* Input Card */}
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "36px", marginBottom: 20 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 28 }}>
+        <div className="bg-[#1E293B] border border-white/10 rounded-2xl p-6 lg:p-10 mb-8 shadow-xl">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             <div>
-              <label style={{ color: C.muted, fontSize: 12, fontWeight: 600, display: "block", marginBottom: 7 }}>Area / Neighbourhood</label>
-              <select value={area} onChange={e => { setArea(e.target.value); setResult(false); }} style={{ width: "100%", background: C.cardDeep, border: `1px solid ${C.border}`, color: C.text, borderRadius: 8, padding: "11px 14px", fontSize: 14, outline: "none" }}>
+              <label className="block text-[#94A3B8] text-xs font-bold uppercase tracking-wider mb-2">Area / Neighbourhood</label>
+              <select 
+                value={area} 
+                onChange={e => { setArea(e.target.value); setResult(false); }} 
+                className="w-full bg-[#162032] border border-white/10 text-white rounded-xl px-4 py-3.5 text-sm outline-none focus:border-[#F97316] transition-colors"
+              >
                 {AREAS.map(a => <option key={a}>{a}</option>)}
               </select>
             </div>
             <div>
-              <label style={{ color: C.muted, fontSize: 12, fontWeight: 600, display: "block", marginBottom: 7 }}>Time of Day</label>
-              <select value={time} onChange={e => { setTime(e.target.value); setResult(false); }} style={{ width: "100%", background: C.cardDeep, border: `1px solid ${C.border}`, color: C.text, borderRadius: 8, padding: "11px 14px", fontSize: 14, outline: "none" }}>
+              <label className="block text-[#94A3B8] text-xs font-bold uppercase tracking-wider mb-2">Time of Day</label>
+              <select 
+                value={time} 
+                onChange={e => { setTime(e.target.value); setResult(false); }} 
+                className="w-full bg-[#162032] border border-white/10 text-white rounded-xl px-4 py-3.5 text-sm outline-none focus:border-[#F97316] transition-colors"
+              >
                 {TIMES.map(t => <option key={t}>{t}</option>)}
               </select>
             </div>
           </div>
           
-          <button onClick={analyze} disabled={loading} style={{ width: "100%", background: loading ? C.orangeBg : C.orange, color: loading ? C.orange : "#fff", border: loading ? `1px solid ${C.orangeBorder}` : "none", borderRadius: 10, padding: "14px", fontSize: 16, fontWeight: 800, cursor: loading ? "default" : "pointer" }}>
-            {loading ? "Analyzing with AI..." : "Analyze Risk →"}
+          <button 
+            onClick={analyze} 
+            disabled={loading} 
+            className="w-full bg-[#F97316] hover:bg-orange-600 disabled:bg-[#F97316]/20 disabled:text-[#F97316] text-white font-bold py-4 rounded-xl transition-colors shadow-lg flex justify-center items-center gap-2"
+          >
+            {loading ? (
+              <><div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" /> Analyzing with AI...</>
+            ) : (
+              "Analyze Risk →"
+            )}
           </button>
         </div>
 
         {/* Results Card */}
         {result && (
-          <div style={{ background: C.card, border: `1px solid ${C.amber}`, borderRadius: 16, padding: "32px", animation: "fadeIn 0.3s ease" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 24 }}>
+          <div className="bg-[#1E293B] border border-[#F59E0B] rounded-2xl p-8 shadow-2xl shadow-orange-900/10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
               <div>
-                <div style={{ color: C.dim, fontSize: 10, fontWeight: 700, letterSpacing: "0.07em", marginBottom: 8 }}>RISK ASSESSMENT RESULT</div>
-                <h2 style={{ fontSize: 22, fontWeight: 800 }}>{area}</h2>
-                <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>{time}</div>
+                <div className="text-[#64748B] text-xs font-bold tracking-widest mb-2 uppercase">Risk Assessment Result</div>
+                <h2 className="text-3xl font-black text-white">{area}</h2>
+                <div className="text-[#94A3B8] text-sm mt-1">{time}</div>
               </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ color: C.amber, fontSize: 56, fontWeight: 900, lineHeight: 1 }}>58</div>
-                <div style={{ color: C.dim, fontSize: 11, fontWeight: 600 }}>RISK SCORE</div>
+              <div className="text-center bg-[#162032] border border-white/5 rounded-xl p-5 min-w-[140px]">
+                <div className="text-[#F59E0B] text-5xl font-black leading-none mb-1">58</div>
+                <div className="text-[#64748B] text-xs font-bold tracking-wider">RISK SCORE</div>
               </div>
             </div>
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

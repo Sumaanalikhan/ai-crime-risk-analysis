@@ -1,89 +1,90 @@
-import { useState } from "react";
-import { MapContainer, TileLayer } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, Tooltip } from 'react-leaflet';
 import { Filter, Activity } from 'lucide-react';
-import 'leaflet/dist/leaflet.css';
 import Navbar from '../components/Navbar';
-
-const C = {
-  bg: "#0F172A",
-  card: "#1E293B",
-  cardDeep: "#162032",
-  border: "rgba(255,255,255,0.08)",
-  text: "#F1F5F9",
-  muted: "#94A3B8",
-  dim: "#64748B",
-  orange: "#F97316",
-  red: "#EF4444",
-  amber: "#F59E0B",
-  amberBg: "rgba(245,158,11,0.10)",
-  amberBorder: "rgba(245,158,11,0.25)",
-  green: "#22C55E",
-  sea: "#0A1628",
-};
+import 'leaflet/dist/leaflet.css';
 
 export default function Dashboard() {
-  const [timeFilter, setTimeFilter] = useState("Evening");
-
   return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden", background: C.bg, color: C.text }}>
+    <div className="min-h-screen flex flex-col bg-[#0F172A] text-[#F1F5F9]">
       <Navbar />
-      
-      {/* Filter bar */}
-      <div style={{ background: C.card, borderBottom: `1px solid ${C.border}`, padding: "10px 28px", display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
-        <Filter size={14} color={C.dim} />
-        <span style={{ color: C.muted, fontSize: 12, fontWeight: 700, letterSpacing: "0.06em" }}>FILTERS</span>
-        <div style={{ width: 1, height: 18, background: C.border }} />
-        <select value={timeFilter} onChange={e => setTimeFilter(e.target.value)} style={{ background: C.cardDeep, border: `1px solid ${C.border}`, color: C.text, borderRadius: 7, padding: "6px 12px", fontSize: 13, cursor: "pointer", outline: "none" }}>
-          {["Morning", "Afternoon", "Evening", "Night"].map(o => <option key={o}>{o}</option>)}
-        </select>
-      </div>
 
-      {/* Main 3-col grid */}
-      <div style={{ flex: 1, display: "grid", gridTemplateColumns: "255px 1fr 275px", overflow: "hidden" }}>
-        
-        {/* Left Sidebar */}
-        <aside style={{ background: C.card, borderRight: `1px solid ${C.border}`, padding: 18, overflowY: "auto" }}>
-          <div style={{ background: C.amberBg, border: `1px solid ${C.amberBorder}`, borderRadius: 10, padding: "18px 16px", marginBottom: 20, textAlign: "center" }}>
-            <div style={{ color: C.dim, fontSize: 10, fontWeight: 700, letterSpacing: "0.07em", marginBottom: 10 }}>CURRENT CITY RISK</div>
-            <div style={{ color: C.amber, fontSize: 30, fontWeight: 900, marginBottom: 4 }}>MEDIUM</div>
+      {/* Main App Layout */}
+      <div className="flex-1 flex flex-col lg:flex-row lg:h-[calc(100vh-64px)] overflow-y-auto lg:overflow-hidden">
+
+        {/* LEFT SIDEBAR (Filters & General Risk) */}
+        <aside className="w-full lg:w-[280px] bg-[#1E293B] border-b lg:border-r border-white/10 p-5 flex flex-col gap-6 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <Filter className="text-[#94A3B8]" size={18} />
+            <span className="text-sm font-bold text-[#94A3B8] tracking-widest">FILTERS</span>
+            <select className="ml-auto bg-[#162032] border border-white/10 text-white rounded-md px-2 py-1 text-sm outline-none focus:border-[#F97316]">
+              <option>Evening</option>
+              <option>Night</option>
+              <option>Morning</option>
+            </select>
+          </div>
+
+          <div className="bg-[#162032] border border-[#F59E0B]/30 rounded-xl p-5 text-center shadow-lg shadow-orange-900/10">
+            <div className="text-[#64748B] text-xs font-bold tracking-widest mb-3 uppercase">Current City Risk</div>
+            <div className="text-3xl font-black text-[#F59E0B] tracking-tight">MEDIUM</div>
           </div>
         </aside>
 
-        {/* Center: Live Interactive Map */}
-        <div style={{ background: C.sea, position: "relative", overflow: "hidden" }}>
-          <MapContainer center={[24.8607, 67.0011]} zoom={12} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", zIndex: 1 }}>
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap' />
+        {/* CENTER: The Interactive Map */}
+        <main className="flex-1 relative h-[50vh] lg:h-auto min-h-[400px] z-[1]">
+          <MapContainer center={[24.8607, 67.0011]} zoom={12} zoomControl={false} className="absolute inset-0 w-full h-full">
+            <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+            <CircleMarker center={[24.8607, 67.0011]} radius={35} pathOptions={{ color: "#EF4444", fillColor: "#EF4444", fillOpacity: 0.2 }}><Tooltip>Lyari - High Risk</Tooltip></CircleMarker>
+            <CircleMarker center={[24.9180, 67.0971]} radius={25} pathOptions={{ color: "#F59E0B", fillColor: "#F59E0B", fillOpacity: 0.2 }}><Tooltip>Gulshan - Med Risk</Tooltip></CircleMarker>
+            <CircleMarker center={[24.795, 67.0322]} radius={20} pathOptions={{ color: "#22C55E", fillColor: "#22C55E", fillOpacity: 0.2 }}><Tooltip>DHA - Low Risk</Tooltip></CircleMarker>
           </MapContainer>
-
-          {/* Time Badge Overlay */}
-          <div style={{ position: "absolute", bottom: 16, left: 16, zIndex: 1000, background: "rgba(10,22,40,0.88)", border: `1px solid ${C.border}`, borderRadius: 7, padding: "7px 13px", display: "flex", alignItems: "center", gap: 7 }}>
-            <Activity size={13} color={C.orange} />
-            <span style={{ color: C.muted, fontSize: 12 }}>Showing: <span style={{ color: C.text, fontWeight: 600 }}>{timeFilter}</span></span>
+          
+          {/* Floating Live Data Badge */}
+          <div className="absolute bottom-4 left-4 z-[1000] bg-[#162032]/90 backdrop-blur border border-white/10 rounded-lg px-3 py-2 flex items-center gap-2">
+            <Activity size={16} className="text-[#F97316]" />
+            <span className="text-xs font-bold text-white">Live Data Feed</span>
           </div>
-        </div>
+        </main>
 
-        {/* Right Sidebar */}
-        <aside style={{ background: C.card, borderLeft: `1px solid ${C.border}`, padding: 18, overflowY: "auto" }}>
-          <div style={{ color: C.dim, fontSize: 10, fontWeight: 700, letterSpacing: "0.07em", marginBottom: 16 }}>RISK SUMMARY</div>
-          {[
-            { area: "Lyari", score: 88, risk: "high" },
-            { area: "Nazimabad", score: 58, risk: "medium" },
-            { area: "DHA/Clifton", score: 18, risk: "low" },
-          ].map(a => {
-            const col = a.risk === "high" ? C.red : a.risk === "medium" ? C.amber : C.green;
-            return (
-              <div key={a.area} style={{ marginBottom: 13 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                  <span style={{ color: C.text, fontSize: 13, fontWeight: 500 }}>{a.area}</span>
-                  <span style={{ color: col, fontSize: 12, fontWeight: 800 }}>{a.score}%</span>
-                </div>
-                <div style={{ background: C.cardDeep, borderRadius: 4, height: 5 }}>
-                  <div style={{ width: `${a.score}%`, height: "100%", background: col, borderRadius: 4 }} />
-                </div>
+        {/* RIGHT SIDEBAR (District Breakdown) */}
+        <aside className="w-full lg:w-[320px] bg-[#1E293B] border-t lg:border-l border-white/10 p-5 flex-shrink-0 overflow-y-auto">
+          <div className="text-[#64748B] text-xs font-bold tracking-widest mb-6 uppercase">Risk Summary</div>
+          
+          <div className="flex flex-col gap-6">
+            {/* Lyari */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <span className="font-bold text-white">Lyari</span>
+                <span className="font-bold text-[#EF4444]">88%</span>
               </div>
-            );
-          })}
+              <div className="w-full bg-[#0F172A] rounded-full h-1.5">
+                <div className="bg-[#EF4444] h-1.5 rounded-full" style={{ width: '88%' }}></div>
+              </div>
+            </div>
+
+            {/* Nazimabad */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <span className="font-bold text-white">Nazimabad</span>
+                <span className="font-bold text-[#F59E0B]">58%</span>
+              </div>
+              <div className="w-full bg-[#0F172A] rounded-full h-1.5">
+                <div className="bg-[#F59E0B] h-1.5 rounded-full" style={{ width: '58%' }}></div>
+              </div>
+            </div>
+
+            {/* DHA/Clifton */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <span className="font-bold text-white">DHA/Clifton</span>
+                <span className="font-bold text-[#22C55E]">18%</span>
+              </div>
+              <div className="w-full bg-[#0F172A] rounded-full h-1.5">
+                <div className="bg-[#22C55E] h-1.5 rounded-full" style={{ width: '18%' }}></div>
+              </div>
+            </div>
+          </div>
         </aside>
+
       </div>
     </div>
   );
