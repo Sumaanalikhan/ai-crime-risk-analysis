@@ -49,9 +49,9 @@ export default function Navbar() {
         
         {/* Desktop Login & Mobile Menu Button */}
         <div className="flex items-center gap-4">
-          <button className="hidden md:block bg-[#F97316] hover:bg-orange-600 text-white rounded-lg px-5 py-2 text-sm font-bold transition-colors">
+          <Link to="/login" className="hidden md:block bg-[#F97316] hover:bg-orange-600 text-white rounded-lg px-5 py-2 text-sm font-bold transition-colors">
             Login
-          </button>
+          </Link>
           <button onClick={() => setIsOpen(!isOpen)} className="md:hidden text-[#94A3B8]">
             <Menu size={24} />
           </button>
@@ -66,9 +66,9 @@ export default function Navbar() {
               {l.label}
             </Link>
           ))}
-          <button className="bg-[#F97316] text-white rounded-lg px-4 py-2 text-sm font-bold w-full mt-2">
+          <Link to="/login" onClick={() => setIsOpen(false)} className="bg-[#F97316] text-center text-white rounded-lg px-4 py-2 text-sm font-bold w-full mt-2 block">
             Login
-          </button>
+          </Link>
         </div>
       )}
     </nav>
