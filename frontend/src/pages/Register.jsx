@@ -1,20 +1,28 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Shield, Mail, Lock, User, ArrowRight } from 'lucide-react';
+import { Shield, Mail, Lock, User, ArrowRight, AlertCircle } from 'lucide-react';
+import API from '../services/api';
 
 export default function Register() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ name: '', email: '', password: '' });
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleRegister = (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
     setIsLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
+    setError('');
+
+    try {
+      const response = await API.post('/auth/register', formData);
+      localStorage.setItem('token', response.data.token);
       navigate('/dashboard');
-    }, 1000);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to connect to server');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -38,6 +46,12 @@ export default function Register() {
           <h1 className="text-2xl font-black text-white tracking-tight mb-2">Create Account</h1>
           <p className="text-[#94A3B8] text-sm">Join CrimeGuard for safe navigation in Karachi.</p>
         </div>
+
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/50 text-red-500 text-sm p-3 rounded-xl mb-6 flex items-center gap-2">
+            <AlertCircle size={16} /> {error}
+          </div>
+        )}
 
         <form onSubmit={handleRegister} className="flex flex-col gap-5">
           <div>
