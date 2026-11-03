@@ -32,7 +32,7 @@ export default function Dashboard() {
         {/* CENTER: The Interactive Map */}
         <main className="flex-1 relative h-[50vh] lg:h-auto min-h-[400px] z-[1]">
           <MapContainer center={[24.8607, 67.0011]} zoom={12} zoomControl={false} className="absolute inset-0 w-full h-full">
-            <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <CircleMarker center={[24.8607, 67.0011]} radius={35} pathOptions={{ color: "#EF4444", fillColor: "#EF4444", fillOpacity: 0.2 }}><Tooltip>Lyari - High Risk</Tooltip></CircleMarker>
             <CircleMarker center={[24.9180, 67.0971]} radius={25} pathOptions={{ color: "#F59E0B", fillColor: "#F59E0B", fillOpacity: 0.2 }}><Tooltip>Gulshan - Med Risk</Tooltip></CircleMarker>
             <CircleMarker center={[24.795, 67.0322]} radius={20} pathOptions={{ color: "#22C55E", fillColor: "#22C55E", fillOpacity: 0.2 }}><Tooltip>DHA - Low Risk</Tooltip></CircleMarker>

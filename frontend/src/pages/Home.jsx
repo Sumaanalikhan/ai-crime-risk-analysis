@@ -53,7 +53,7 @@ export default function Home() {
           </div>
 
           <MapContainer center={[24.9, 67.05]} zoom={11} zoomControl={false} className="w-full h-full z-[1]">
-            <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <CircleMarker center={[24.8607, 67.0011]} radius={25} pathOptions={{ color: "#EF4444", fillColor: "#EF4444", fillOpacity: 0.25 }}><Tooltip>Saddar / Lyari</Tooltip></CircleMarker>
             <CircleMarker center={[24.9180, 67.0971]} radius={20} pathOptions={{ color: "#F59E0B", fillColor: "#F59E0B", fillOpacity: 0.25 }}><Tooltip>Gulshan-e-Iqbal</Tooltip></CircleMarker>
             <CircleMarker center={[24.795, 67.0322]} radius={15} pathOptions={{ color: "#22C55E", fillColor: "#22C55E", fillOpacity: 0.25 }}><Tooltip>DHA</Tooltip></CircleMarker>

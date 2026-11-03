@@ -30,7 +30,7 @@ export default function Heatmap() {
         {/* Map Area */}
         <div className="flex-1 relative bg-[#0A1628] z-[1]">
           <MapContainer center={[24.8607, 67.0011]} zoom={12} zoomControl={false} className="absolute inset-0 w-full h-full">
-            <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           </MapContainer>
         </div>
 

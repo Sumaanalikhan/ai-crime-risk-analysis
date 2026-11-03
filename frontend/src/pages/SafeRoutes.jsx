@@ -146,7 +146,7 @@ export default function SafeRoutes() {
           </div>
 
           <MapContainer center={[24.87, 67.09]} zoom={12} zoomControl={false} className="w-full h-full z-[1]">
-            <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             
             {showRoutes && (
               <>
