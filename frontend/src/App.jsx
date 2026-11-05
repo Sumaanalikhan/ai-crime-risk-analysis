@@ -7,24 +7,29 @@ import Heatmap from './pages/Heatmap';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
+import ProtectedRoute from './components/ProtectedRoute';
 
 export default function App() {
   return (
     <Router>
       <Routes>
+        {/* Public Utility Routes - Open to everyone */}
         <Route path="/" element={<Home />} />
+        <Route path="/predict" element={<PredictRisk />} />
+        <Route path="/routes" element={<SafeRoutes />} />
+        <Route path="/heatmap" element={<Heatmap />} />
         
-        {/* Auth Routes */}
+        {/* Authentication Routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        
-        {/* App Routes */}
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/routes" element={<SafeRoutes />} />
-        <Route path="/predict" element={<PredictRisk />} />
-        <Route path="/heatmap" element={<Heatmap />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         
+        {/* Protected Route - Only for logged-in users saving their data */}
+        <Route path="/dashboard" element={
+          <ProtectedRoute>
+            <Dashboard />
+          </ProtectedRoute>
+        } />
       </Routes>
     </Router>
   );
