@@ -13,7 +13,7 @@ export default function App() {
   return (
     <Router>
       <Routes>
-        {/* Public Utility Routes - Open to everyone */}
+        {/* Public Utility Routes - Open to everyone without a login */}
         <Route path="/" element={<Home />} />
         <Route path="/predict" element={<PredictRisk />} />
         <Route path="/routes" element={<SafeRoutes />} />
@@ -24,7 +24,7 @@ export default function App() {
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         
-        {/* Protected Route - Only for logged-in users saving their data */}
+        {/* Protected Route - Only for logged-in users managing saved data */}
         <Route path="/dashboard" element={
           <ProtectedRoute>
             <Dashboard />
