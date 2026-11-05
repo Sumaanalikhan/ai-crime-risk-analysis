@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Shield, Mail, Lock, User, ArrowRight, AlertCircle } from 'lucide-react';
+import { Shield, Mail, Lock, User, ArrowRight, AlertCircle, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import API from '../services/api';
 
 export default function Register() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ name: '', email: '', password: '' });
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -16,9 +17,6 @@ export default function Register() {
 
     try {
       await API.post('/auth/register', formData);
-      
-      // Do NOT save the token here. Force them to log in manually.
-      // Redirect to the login page instead of the dashboard.
       navigate('/login');
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to connect to server');
@@ -29,6 +27,11 @@ export default function Register() {
 
   return (
     <div className="min-h-screen bg-[#0F172A] flex flex-col justify-center items-center px-6 py-12 relative overflow-hidden">
+      {/* Back to Home Button */}
+      <Link to="/" className="absolute top-6 left-6 md:top-10 md:left-10 text-[#94A3B8] hover:text-white flex items-center gap-2 text-sm font-bold transition-colors z-20">
+        <ArrowLeft size={18} /> Back to Home
+      </Link>
+
       {/* Background Glow */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-[#22C55E]/10 rounded-full blur-[120px] pointer-events-none" />
 
@@ -97,13 +100,20 @@ export default function Register() {
                 <Lock size={18} className="text-[#64748B]" />
               </div>
               <input 
-                type="password" 
+                type={showPassword ? "text" : "password"} 
                 required
                 value={formData.password}
                 onChange={(e) => setFormData({...formData, password: e.target.value})}
-                className="w-full bg-[#162032] border border-white/10 text-white rounded-xl pl-11 pr-4 py-3.5 text-sm outline-none focus:border-[#F97316] transition-colors"
+                className="w-full bg-[#162032] border border-white/10 text-white rounded-xl pl-11 pr-12 py-3.5 text-sm outline-none focus:border-[#F97316] transition-colors"
                 placeholder="••••••••"
               />
+              <button 
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 pr-4 flex items-center text-[#64748B] hover:text-[#F1F5F9] transition-colors focus:outline-none"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
           </div>
 

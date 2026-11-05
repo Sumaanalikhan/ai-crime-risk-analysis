@@ -14,7 +14,7 @@ export default function Navbar() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     setProfileOpen(false);
-    navigate('/login');
+    navigate('/'); // Kicks them to the public Home page instead of Login
   };
 
   const links = [
