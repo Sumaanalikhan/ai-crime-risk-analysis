@@ -1,10 +1,19 @@
-import { Link, useLocation } from 'react-router-dom';
-import { Shield, Menu } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Shield, Menu, LogOut } from 'lucide-react';
 import { useState } from 'react';
 
 export default function Navbar() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
+
+  // Check if the user is currently logged in
+  const isAuthenticated = !!localStorage.getItem('token');
+
+  const handleLogout = () => {
+    localStorage.removeItem('token'); // Delete the secure token
+    navigate('/login'); // Kick them back to the login screen
+  };
 
   const links = [
     { path: "/dashboard", label: "Dashboard" },
@@ -47,11 +56,22 @@ export default function Navbar() {
           })}
         </div>
         
-        {/* Desktop Login & Mobile Menu Button */}
+        {/* Desktop Auth Buttons & Mobile Menu Button */}
         <div className="flex items-center gap-4">
-          <Link to="/login" className="hidden md:block bg-[#F97316] hover:bg-orange-600 text-white rounded-lg px-5 py-2 text-sm font-bold transition-colors">
-            Login
-          </Link>
+          <div className="hidden md:block">
+            {isAuthenticated ? (
+              <button 
+                onClick={handleLogout}
+                className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded-lg px-4 py-2 text-sm font-bold transition-colors"
+              >
+                <LogOut size={16} /> Logout
+              </button>
+            ) : (
+              <Link to="/login" className="bg-[#F97316] hover:bg-orange-600 text-white rounded-lg px-5 py-2 text-sm font-bold transition-colors">
+                Login
+              </Link>
+            )}
+          </div>
           <button onClick={() => setIsOpen(!isOpen)} className="md:hidden text-[#94A3B8]">
             <Menu size={24} />
           </button>
@@ -66,9 +86,19 @@ export default function Navbar() {
               {l.label}
             </Link>
           ))}
-          <Link to="/login" onClick={() => setIsOpen(false)} className="bg-[#F97316] text-center text-white rounded-lg px-4 py-2 text-sm font-bold w-full mt-2 block">
-            Login
-          </Link>
+          
+          {isAuthenticated ? (
+            <button 
+              onClick={() => { setIsOpen(false); handleLogout(); }}
+              className="flex items-center justify-center gap-2 bg-red-500/10 text-red-500 border border-red-500/20 rounded-lg px-4 py-2 text-sm font-bold w-full mt-2"
+            >
+              <LogOut size={16} /> Logout
+            </button>
+          ) : (
+            <Link to="/login" onClick={() => setIsOpen(false)} className="bg-[#F97316] text-center text-white rounded-lg px-4 py-2 text-sm font-bold w-full mt-2 block">
+              Login
+            </Link>
+          )}
         </div>
       )}
     </nav>

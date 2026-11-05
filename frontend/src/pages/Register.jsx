@@ -15,9 +15,11 @@ export default function Register() {
     setError('');
 
     try {
-      const response = await API.post('/auth/register', formData);
-      localStorage.setItem('token', response.data.token);
-      navigate('/dashboard');
+      await API.post('/auth/register', formData);
+      
+      // Do NOT save the token here. Force them to log in manually.
+      // Redirect to the login page instead of the dashboard.
+      navigate('/login');
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to connect to server');
     } finally {
