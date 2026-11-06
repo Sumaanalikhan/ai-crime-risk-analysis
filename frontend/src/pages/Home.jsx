@@ -12,33 +12,40 @@ export default function Home() {
       <Navbar />
 
       {/* 1. HERO SECTION */}
-      <section className="flex flex-col lg:flex-row items-center max-w-7xl mx-auto px-6 py-12 lg:py-20 gap-12 lg:gap-16 w-full">
+      <section className="max-w-7xl mx-auto px-6 w-full py-16  md:py-10 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+        
         {/* Left Column: Hero Content */}
-        <div className="flex-1 text-center lg:text-left">
-          <span className="inline-block border border-[#F97316]/30 bg-[#F97316]/10 rounded-full px-4 py-1.5 text-[#F97316] text-xs font-bold tracking-widest mb-6">
+        <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
+          <span className="border border-[#F97316]/30 bg-[#F97316]/10 text-[#F97316] px-4 py-1.5 rounded-full tracking-wider text-xs font-semibold mb-4 block w-fit">
             LIVE CRIME RISK DATA • KARACHI
           </span>
 
-          <h1 className="text-5xl lg:text-7xl font-black leading-tight mb-6 tracking-tight">
+          <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight mb-6 leading-tight text-white">
             Stay Safe <br className="hidden lg:block" /> in <span className="text-[#F97316]">Karachi</span>
           </h1>
 
-          <p className="text-[#94A3B8] text-lg leading-relaxed max-w-lg mx-auto lg:mx-0 mb-10">
+          <p className="text-gray-300 md:text-lg mb-8 max-w-xl">
             Real-time crime risk awareness and intelligent safe navigation powered by AI. Know before you go — check any area in seconds.
           </p>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-            <button onClick={() => navigate('/predict')} className="w-full sm:w-auto bg-[#F97316] hover:bg-orange-600 text-white border-none rounded-xl px-7 py-4 text-base font-bold flex items-center justify-center gap-2 transition-colors shadow-lg shadow-orange-500/20">
+          <div className="flex flex-wrap items-center justify-center lg:justify-start gap-4">
+            <button 
+              onClick={() => navigate('/predict')} 
+              className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg shadow-md transition-all duration-200 ease-in-out transform hover:-translate-y-0.5 flex items-center gap-2"
+            >
               Try Risk Predictor <ArrowRight size={18} />
             </button>
-            <button onClick={() => navigate('/heatmap')} className="w-full sm:w-auto bg-transparent hover:bg-white/5 text-[#F1F5F9] border border-white/10 rounded-xl px-7 py-4 text-base font-semibold transition-colors">
+            <button 
+              onClick={() => navigate('/heatmap')} 
+              className="px-6 py-3 border-2 border-gray-500 hover:border-white text-gray-300 hover:text-white font-medium rounded-lg bg-transparent transition-all duration-200 ease-in-out"
+            >
               Explore Heatmap
             </button>
           </div>
         </div>
 
         {/* Right Column: Interactive Map Component */}
-        <div className="w-full lg:flex-1 h-[400px] lg:h-[550px] relative bg-[#0A1628] rounded-3xl border border-white/10 overflow-hidden shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)]">
+        <div className="w-full h-[400px] lg:h-[550px] relative bg-[#0A1628] rounded-xl border border-gray-800 shadow-2xl overflow-hidden">
           <div className="absolute top-4 left-4 z-[1000] bg-[#162032] border border-white/10 rounded-lg px-3 py-2 flex items-center gap-2 shadow-lg">
             <div className="w-2.5 h-2.5 rounded-full bg-[#22C55E] animate-pulse" />
             <span className="text-sm font-bold text-white">Karachi Crime Heatmap</span>
@@ -164,4 +171,4 @@ export default function Home() {
       </footer>
     </div>
   );
-}   
+}
