@@ -1,165 +1,191 @@
-import { useState } from "react";
-import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip } from "react-leaflet";
-import { MapPin, Navigation, Clock, ShieldCheck, AlertTriangle, ArrowRight, Search } from "lucide-react";
-import Navbar from "../components/Navbar";
-import "leaflet/dist/leaflet.css";
+import { useState } from 'react';
+import { MapContainer, TileLayer, CircleMarker, Polyline, Tooltip } from 'react-leaflet';
+import { MapPin, Navigation, ShieldAlert, Clock, AlertTriangle, Route as RouteIcon, CheckCircle } from 'lucide-react';
+import Navbar from '../components/Navbar';
+import 'leaflet/dist/leaflet.css';
 
 export default function SafeRoutes() {
-  const [origin, setOrigin] = useState("Iqra University, Defence View");
-  const [destination, setDestination] = useState("Gulshan-e-Iqbal");
+  const [startPoint, setStartPoint] = useState('');
+  const [endPoint, setEndPoint] = useState('');
   const [isCalculating, setIsCalculating] = useState(false);
-  const [showRoutes, setShowRoutes] = useState(false);
+  const [routeResult, setRouteResult] = useState(null);
 
-  const handleCalculate = () => {
+  const handleCalculate = (e) => {
+    e.preventDefault();
+    if (!startPoint || !endPoint) return;
+
     setIsCalculating(true);
-    setShowRoutes(false);
-    // Simulate API calculation delay
+    setRouteResult(null);
+
+    // Simulate AI route calculation delay
     setTimeout(() => {
+      setRouteResult({
+        status: 'Safe Route Found',
+        time: '32 mins',
+        distance: '14.5 km',
+        risk: 'Low Risk',
+        advice: 'Bypassing Saddar high-risk zone. Proceeding via Shahrah-e-Faisal. Keep doors locked at traffic signals.'
+      });
       setIsCalculating(false);
-      setShowRoutes(true);
-    }, 1200);
+    }, 1500);
   };
 
-  // Mock coordinates for the map path
-  const routePath = [
-    [24.8270, 67.0823], // Iqra Uni
-    [24.8450, 67.0700],
-    [24.8700, 67.0850],
-    [24.9180, 67.0971]  // Gulshan
+  // Mock Map Data for the UI demonstration
+  const dangerZones = [
+    { center: [24.8607, 67.0011], radius: 30, name: "Saddar / Lyari (Avoid)" },
+    { center: [24.8900, 67.0200], radius: 25, name: "Guru Mandir (Avoid)" }
+  ];
+
+  // A simulated route line from DHA to Tariq Road bypassing the red zones
+  const safePathCoords = [
+    [24.7950, 67.0322], // Start: DHA
+    [24.8200, 67.0450],
+    [24.8450, 67.0550], // Bypassing east of the danger zones
+    [24.8600, 67.0700],
+    [24.8716, 67.0599]  // End: Tariq Road
   ];
 
   return (
-    <div className="min-h-screen bg-[#0F172A] text-[#F1F5F9] flex flex-col h-screen overflow-hidden">
+    <div className="min-h-screen bg-[#0F172A] text-[#F1F5F9] flex flex-col font-sans">
       <Navbar />
 
-      <div className="flex-1 flex flex-col lg:flex-row w-full h-[calc(100vh-64px)]">
+      <div className="flex-1 flex flex-col lg:flex-row relative overflow-hidden">
         
-        {/* LEFT SIDEBAR: Navigation Controls */}
-        <div className="w-full lg:w-[420px] bg-[#1E293B] border-r border-white/10 flex flex-col shadow-2xl z-[10] overflow-y-auto">
-          <div className="p-6">
-            <h2 className="text-2xl font-black text-white mb-2 tracking-tight">Safe Navigation</h2>
-            <p className="text-[#94A3B8] text-sm mb-8">Enter your destination to find the most secure route based on real-time crime data.</p>
+        {/* Left Sidebar: Route Input & Results */}
+        <div className="w-full lg:w-[450px] bg-[#1E293B] border-r border-white/10 p-6 md:p-8 flex flex-col z-10 overflow-y-auto shadow-2xl">
+          
+          <div className="mb-8">
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#0F172A] border border-white/10 text-[#F97316] text-xs font-bold tracking-widest uppercase mb-4">
+              <Navigation size={14} /> AI Navigation
+            </span>
+            <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight mb-2">Safe Routes</h1>
+            <p className="text-[#94A3B8] text-sm leading-relaxed">
+              Calculate travel routes that actively steer clear of high-incident areas across Karachi to ensure safe transit.
+            </p>
+          </div>
 
-            {/* Input Form */}
-            <div className="relative mb-6">
-              {/* Vertical connector line */}
-              <div className="absolute left-6 top-10 bottom-10 w-0.5 bg-white/10 border-l border-dashed border-[#64748B]"></div>
-              
-              <div className="relative bg-[#162032] border border-white/10 rounded-xl px-4 py-3 flex items-center gap-4 mb-4 focus-within:border-[#F97316] transition-colors">
-                <div className="bg-blue-500/20 p-1.5 rounded-full">
-                  <Navigation size={16} className="text-blue-500" />
-                </div>
-                <input 
-                  type="text" 
-                  value={origin}
-                  onChange={(e) => setOrigin(e.target.value)}
-                  className="bg-transparent border-none outline-none w-full text-sm font-medium text-white placeholder-[#64748B]"
-                  placeholder="Starting point"
-                />
-              </div>
+          {/* Input Form */}
+          <form onSubmit={handleCalculate} className="space-y-4 mb-8">
+            <div className="relative">
+              <div className="absolute left-6 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-white"></div>
+              <input 
+                type="text" 
+                placeholder="Start Location (e.g., DHA Phase 6)"
+                value={startPoint}
+                onChange={(e) => setStartPoint(e.target.value)}
+                className="w-full bg-[#0F172A] border border-white/10 rounded-xl py-4 pl-14 pr-4 text-white focus:outline-none focus:border-[#F97316] text-sm transition-colors"
+                required
+              />
+            </div>
+            
+            <div className="flex justify-start pl-7 -my-2">
+              <div className="w-0.5 h-6 bg-white/10"></div>
+            </div>
 
-              <div className="relative bg-[#162032] border border-white/10 rounded-xl px-4 py-3 flex items-center gap-4 focus-within:border-[#F97316] transition-colors">
-                <div className="bg-[#F97316]/20 p-1.5 rounded-full">
-                  <MapPin size={16} className="text-[#F97316]" />
-                </div>
-                <input 
-                  type="text" 
-                  value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
-                  className="bg-transparent border-none outline-none w-full text-sm font-medium text-white placeholder-[#64748B]"
-                  placeholder="Destination"
-                />
-              </div>
+            <div className="relative">
+              <MapPin className="absolute left-5 top-1/2 -translate-y-1/2 text-[#F97316]" size={18} />
+              <input 
+                type="text" 
+                placeholder="Destination (e.g., Tariq Road)"
+                value={endPoint}
+                onChange={(e) => setEndPoint(e.target.value)}
+                className="w-full bg-[#0F172A] border border-white/10 rounded-xl py-4 pl-14 pr-4 text-white focus:outline-none focus:border-[#F97316] text-sm transition-colors"
+                required
+              />
             </div>
 
             <button 
-              onClick={handleCalculate}
+              type="submit" 
               disabled={isCalculating}
-              className="w-full bg-[#F97316] hover:bg-orange-600 disabled:bg-orange-600/50 text-white font-bold py-3.5 rounded-xl transition-colors shadow-lg shadow-orange-500/20 flex justify-center items-center gap-2 mb-8"
+              className="w-full mt-4 bg-[#F97316] hover:bg-orange-600 disabled:opacity-50 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2"
             >
               {isCalculating ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
               ) : (
-                <>Calculate Route <ArrowRight size={18} /></>
+                <>
+                  <RouteIcon size={18} /> Calculate Safe Route
+                </>
               )}
             </button>
+          </form>
 
-            {/* Route Results (Visible after calculation) */}
-            {showRoutes && (
-              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <h3 className="text-xs font-bold text-[#64748B] uppercase tracking-wider mb-4">Recommended Routes</h3>
-                
-                {/* Route Option 1 (Optimal) */}
-                <div className="bg-gradient-to-br from-[#22C55E]/10 to-transparent border border-[#22C55E]/30 rounded-xl p-4 mb-4 cursor-pointer hover:bg-[#22C55E]/10 transition-colors">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <ShieldCheck size={16} className="text-[#22C55E]" />
-                        <span className="text-[#22C55E] font-bold text-sm">Safest Route</span>
-                      </div>
-                      <h4 className="text-white font-semibold">Via Shahrah-e-Faisal</h4>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-lg font-black text-white">28 min</div>
-                      <div className="text-xs text-[#94A3B8]">14.2 km</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4 text-xs font-medium text-[#94A3B8]">
-                    <span className="flex items-center gap-1"><AlertTriangle size={12} /> Low Risk</span>
-                    <span className="flex items-center gap-1"><Clock size={12} /> Optimal Traffic</span>
+          {/* Results Panel */}
+          {routeResult && (
+            <div className="bg-[#0F172A] border border-green-500/30 rounded-2xl p-6 animate-in fade-in slide-in-from-bottom-4 duration-500 shadow-xl">
+              <div className="flex items-center gap-3 mb-4">
+                <CheckCircle className="text-green-500" size={24} />
+                <h3 className="text-xl font-black text-white tracking-tight">{routeResult.status}</h3>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4 mb-5">
+                <div className="bg-[#1E293B] border border-white/5 rounded-xl p-3 flex items-center gap-3">
+                  <Clock size={18} className="text-[#94A3B8]" />
+                  <div>
+                    <div className="text-xs text-[#64748B] font-bold uppercase tracking-wider">Est. Time</div>
+                    <div className="text-white font-bold">{routeResult.time}</div>
                   </div>
                 </div>
-
-                {/* Route Option 2 (Alternative) */}
-                <div className="bg-[#162032] border border-white/5 rounded-xl p-4 cursor-pointer hover:border-white/20 transition-colors opacity-80">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <Navigation size={16} className="text-[#F59E0B]" />
-                        <span className="text-[#F59E0B] font-bold text-sm">Fastest Route</span>
-                      </div>
-                      <h4 className="text-white font-semibold">Via University Road</h4>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-lg font-black text-white">22 min</div>
-                      <div className="text-xs text-[#94A3B8]">12.8 km</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4 text-xs font-medium text-[#94A3B8]">
-                    <span className="flex items-center gap-1"><AlertTriangle size={12} /> Moderate Risk</span>
-                    <span className="flex items-center gap-1"><Search size={12} /> Recent Incidents</span>
+                <div className="bg-[#1E293B] border border-white/5 rounded-xl p-3 flex items-center gap-3">
+                  <RouteIcon size={18} className="text-[#94A3B8]" />
+                  <div>
+                    <div className="text-xs text-[#64748B] font-bold uppercase tracking-wider">Distance</div>
+                    <div className="text-white font-bold">{routeResult.distance}</div>
                   </div>
                 </div>
               </div>
-            )}
-          </div>
+
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 flex gap-3">
+                <ShieldAlert className="text-blue-500 shrink-0" size={20} />
+                <p className="text-sm text-blue-100/80 leading-relaxed">
+                  {routeResult.advice}
+                </p>
+              </div>
+
+              <button className="w-full mt-4 bg-[#1E293B] hover:bg-white/5 border border-white/10 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-sm">
+                <Navigation size={16} /> Start Navigation
+              </button>
+            </div>
+          )}
+
         </div>
 
-        {/* RIGHT AREA: Interactive Map */}
-        <div className="flex-1 relative h-[50vh] lg:h-auto bg-[#0A1628]">
-          {/* Map Overlay Controls */}
-          <div className="absolute top-6 left-6 z-[1000] flex gap-2">
-            <div className="bg-[#162032] border border-white/10 rounded-lg px-4 py-2 flex items-center gap-2 shadow-lg">
-              <div className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
-              <span className="text-xs font-bold text-white">Live Navigation Mode</span>
-            </div>
-          </div>
-
-          <MapContainer center={[24.87, 67.09]} zoom={12} zoomControl={false} className="w-full h-full z-[1]">
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        {/* Right Map Canvas */}
+        <div className="flex-1 h-[500px] lg:h-auto min-h-[500px] relative">
+          <MapContainer center={[24.84, 67.04]} zoom={12} zoomControl={true} className="w-full h-full z-[1]">
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            />
             
-            {showRoutes && (
-              <>
-                <Polyline positions={routePath} color="#22C55E" weight={6} opacity={0.8} dashArray="10, 10" />
-                
-                {/* Origin Marker */}
-                <CircleMarker center={routePath[0]} radius={8} pathOptions={{ color: "#3B82F6", fillColor: "#3B82F6", fillOpacity: 1 }}>
-                  <Tooltip permanent direction="right" offset={[10, 0]} className="bg-transparent border-none text-white font-bold shadow-none">Origin</Tooltip>
-                </CircleMarker>
+            {/* Render Danger Zones */}
+            {dangerZones.map((zone, idx) => (
+              <CircleMarker
+                key={idx}
+                center={zone.center}
+                radius={zone.radius}
+                pathOptions={{ color: '#EF4444', fillColor: '#EF4444', fillOpacity: 0.25, weight: 2 }}
+              >
+                <Tooltip direction="top" opacity={1}>
+                  <span className="font-bold text-slate-900">{zone.name}</span>
+                </Tooltip>
+              </CircleMarker>
+            ))}
 
-                {/* Destination Marker */}
-                <CircleMarker center={routePath[routePath.length - 1]} radius={8} pathOptions={{ color: "#F97316", fillColor: "#F97316", fillOpacity: 1 }}>
-                  <Tooltip permanent direction="right" offset={[10, 0]} className="bg-transparent border-none text-white font-bold shadow-none">Destination</Tooltip>
+            {/* Render the Safe Path Line if a calculation has been made */}
+            {routeResult && (
+              <>
+                <Polyline 
+                  positions={safePathCoords} 
+                  pathOptions={{ color: '#F97316', weight: 5, dashArray: '10, 10', opacity: 0.8 }} 
+                  className="animate-pulse"
+                />
+                
+                {/* Start & End Map Markers */}
+                <CircleMarker center={safePathCoords[0]} radius={8} pathOptions={{ color: '#FFF', fillColor: '#3B82F6', fillOpacity: 1, weight: 2 }}>
+                  <Tooltip permanent direction="right" className="bg-transparent border-none shadow-none text-white font-bold drop-shadow-md">Start</Tooltip>
+                </CircleMarker>
+                <CircleMarker center={safePathCoords[safePathCoords.length - 1]} radius={8} pathOptions={{ color: '#FFF', fillColor: '#22C55E', fillOpacity: 1, weight: 2 }}>
+                  <Tooltip permanent direction="right" className="bg-transparent border-none shadow-none text-white font-bold drop-shadow-md">Destination</Tooltip>
                 </CircleMarker>
               </>
             )}
