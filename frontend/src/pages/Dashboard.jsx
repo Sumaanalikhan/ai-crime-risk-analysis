@@ -1,90 +1,131 @@
-import { MapContainer, TileLayer, CircleMarker, Tooltip } from 'react-leaflet';
-import { Filter, Activity } from 'lucide-react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { MapPin, Clock, Navigation, Trash2, Plus, ShieldCheck, LogOut, User } from 'lucide-react';
 import Navbar from '../components/Navbar';
-import 'leaflet/dist/leaflet.css';
 
 export default function Dashboard() {
+  const navigate = useNavigate();
+  
+  // Mock data for UI development before we connect the Express backend
+  const [savedRoutes, setSavedRoutes] = useState([
+    { id: 1, name: 'Morning Commute', from: 'DHA Phase 6', to: 'Iqra University Main Campus', time: '08:00 AM', risk: 'Low' },
+    { id: 2, name: 'Evening Route', from: 'Iqra University Main Campus', to: 'Tariq Road', time: '06:30 PM', risk: 'Moderate' }
+  ]);
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    navigate('/login');
+  };
+
   return (
-    <div className="min-h-screen flex flex-col bg-[#0F172A] text-[#F1F5F9]">
+    <div className="min-h-screen bg-[#0F172A] text-[#F1F5F9] flex flex-col font-sans">
       <Navbar />
 
-      {/* Main App Layout */}
-      <div className="flex-1 flex flex-col lg:flex-row lg:h-[calc(100vh-64px)] overflow-y-auto lg:overflow-hidden">
-
-        {/* LEFT SIDEBAR (Filters & General Risk) */}
-        <aside className="w-full lg:w-[280px] bg-[#1E293B] border-b lg:border-r border-white/10 p-5 flex flex-col gap-6 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <Filter className="text-[#94A3B8]" size={18} />
-            <span className="text-sm font-bold text-[#94A3B8] tracking-widest">FILTERS</span>
-            <select className="ml-auto bg-[#162032] border border-white/10 text-white rounded-md px-2 py-1 text-sm outline-none focus:border-[#F97316]">
-              <option>Evening</option>
-              <option>Night</option>
-              <option>Morning</option>
-            </select>
+      <div className="max-w-7xl mx-auto px-6 py-12 w-full flex-1">
+        
+        {/* Dashboard Header */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12 border-b border-white/10 pb-8">
+          <div className="flex items-center gap-6">
+            <div className="w-20 h-20 bg-[#1E293B] border border-white/10 rounded-full flex items-center justify-center shadow-lg">
+              <User size={32} className="text-[#94A3B8]" />
+            </div>
+            <div>
+              <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight mb-2">
+                User Dashboard
+              </h1>
+              <p className="text-[#94A3B8] font-medium flex items-center gap-2">
+                <ShieldCheck size={18} className="text-green-500" /> Account secured and active
+              </p>
+            </div>
           </div>
+          <button 
+            onClick={handleLogout}
+            className="bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/50 px-5 py-2.5 rounded-xl font-bold transition-colors flex items-center justify-center gap-2 w-full md:w-auto"
+          >
+            <LogOut size={18} /> Sign Out
+          </button>
+        </div>
 
-          <div className="bg-[#162032] border border-[#F59E0B]/30 rounded-xl p-5 text-center shadow-lg shadow-orange-900/10">
-            <div className="text-[#64748B] text-xs font-bold tracking-widest mb-3 uppercase">Current City Risk</div>
-            <div className="text-3xl font-black text-[#F59E0B] tracking-tight">MEDIUM</div>
-          </div>
-        </aside>
-
-        {/* CENTER: The Interactive Map */}
-        <main className="flex-1 relative h-[50vh] lg:h-auto min-h-[400px] z-[1]">
-          <MapContainer center={[24.8607, 67.0011]} zoom={12} zoomControl={false} className="absolute inset-0 w-full h-full">
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            <CircleMarker center={[24.8607, 67.0011]} radius={35} pathOptions={{ color: "#EF4444", fillColor: "#EF4444", fillOpacity: 0.2 }}><Tooltip>Lyari - High Risk</Tooltip></CircleMarker>
-            <CircleMarker center={[24.9180, 67.0971]} radius={25} pathOptions={{ color: "#F59E0B", fillColor: "#F59E0B", fillOpacity: 0.2 }}><Tooltip>Gulshan - Med Risk</Tooltip></CircleMarker>
-            <CircleMarker center={[24.795, 67.0322]} radius={20} pathOptions={{ color: "#22C55E", fillColor: "#22C55E", fillOpacity: 0.2 }}><Tooltip>DHA - Low Risk</Tooltip></CircleMarker>
-          </MapContainer>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* Floating Live Data Badge */}
-          <div className="absolute bottom-4 left-4 z-[1000] bg-[#162032]/90 backdrop-blur border border-white/10 rounded-lg px-3 py-2 flex items-center gap-2">
-            <Activity size={16} className="text-[#F97316]" />
-            <span className="text-xs font-bold text-white">Live Data Feed</span>
+          {/* Left Column: Saved Routes Manager */}
+          <div className="lg:col-span-2 space-y-6">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-2xl font-bold text-white">Saved Commutes</h2>
+              <button className="bg-[#F97316] hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors">
+                <Plus size={16} /> Add Route
+              </button>
+            </div>
+
+            {savedRoutes.length === 0 ? (
+              <div className="bg-[#1E293B] border border-white/10 rounded-2xl p-10 text-center text-[#94A3B8]">
+                You haven't saved any daily routes yet.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {savedRoutes.map((route) => (
+                  <div key={route.id} className="bg-[#1E293B] border border-white/10 hover:border-white/20 transition-colors rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 shadow-lg">
+                    
+                    <div className="flex-1 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <h3 className="text-lg font-bold text-white">{route.name}</h3>
+                        <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${
+                          route.risk === 'Low' ? 'bg-green-500/10 text-green-500 border border-green-500/30' : 
+                          'bg-yellow-500/10 text-yellow-500 border border-yellow-500/30'
+                        }`}>
+                          {route.risk} Risk
+                        </span>
+                      </div>
+                      
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-4 text-sm text-[#94A3B8]">
+                        <div className="flex items-center gap-2">
+                          <MapPin size={16} className="text-[#F97316]" /> {route.from} 
+                          <span className="mx-1 text-[#64748B]">→</span> 
+                          {route.to}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Clock size={16} className="text-[#F97316]" /> {route.time}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 w-full md:w-auto">
+                      <button className="flex-1 md:flex-none bg-[#0F172A] hover:bg-white/5 border border-white/10 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors">
+                        <Navigation size={16} /> Navigate
+                      </button>
+                      <button className="bg-red-500/10 hover:bg-red-500/20 text-red-500 p-2.5 rounded-xl transition-colors">
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        </main>
 
-        {/* RIGHT SIDEBAR (District Breakdown) */}
-        <aside className="w-full lg:w-[320px] bg-[#1E293B] border-t lg:border-l border-white/10 p-5 flex-shrink-0 overflow-y-auto">
-          <div className="text-[#64748B] text-xs font-bold tracking-widest mb-6 uppercase">Risk Summary</div>
-          
-          <div className="flex flex-col gap-6">
-            {/* Lyari */}
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-bold text-white">Lyari</span>
-                <span className="font-bold text-[#EF4444]">88%</span>
-              </div>
-              <div className="w-full bg-[#0F172A] rounded-full h-1.5">
-                <div className="bg-[#EF4444] h-1.5 rounded-full" style={{ width: '88%' }}></div>
-              </div>
-            </div>
-
-            {/* Nazimabad */}
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-bold text-white">Nazimabad</span>
-                <span className="font-bold text-[#F59E0B]">58%</span>
-              </div>
-              <div className="w-full bg-[#0F172A] rounded-full h-1.5">
-                <div className="bg-[#F59E0B] h-1.5 rounded-full" style={{ width: '58%' }}></div>
-              </div>
-            </div>
-
-            {/* DHA/Clifton */}
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <span className="font-bold text-white">DHA/Clifton</span>
-                <span className="font-bold text-[#22C55E]">18%</span>
-              </div>
-              <div className="w-full bg-[#0F172A] rounded-full h-1.5">
-                <div className="bg-[#22C55E] h-1.5 rounded-full" style={{ width: '18%' }}></div>
+          {/* Right Column: Account Stats / Settings Widget */}
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-white mb-2">Account Status</h2>
+            <div className="bg-[#1E293B] border border-white/10 rounded-2xl p-6 shadow-lg">
+              <div className="space-y-4">
+                <div className="flex justify-between items-center border-b border-white/10 pb-4">
+                  <span className="text-[#94A3B8] font-medium">Subscription</span>
+                  <span className="bg-[#F97316]/10 text-[#F97316] font-bold px-3 py-1 rounded-lg text-sm border border-[#F97316]/30">Public Free</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-white/10 pb-4">
+                  <span className="text-[#94A3B8] font-medium">Saved Routes</span>
+                  <span className="text-white font-bold">{savedRoutes.length} / 5</span>
+                </div>
+                <div className="flex justify-between items-center pt-2">
+                  <span className="text-[#94A3B8] font-medium">Emergency SMS</span>
+                  <button className="text-sm text-[#F97316] font-bold hover:underline">Configure Setup</button>
+                </div>
               </div>
             </div>
           </div>
-        </aside>
 
+        </div>
       </div>
     </div>
   );
