@@ -16,7 +16,8 @@ mongoose.connect(process.env.MONGO_URI)
 
 // API Routes
 app.use('/api/auth', require('./routes/auth'));
-app.use('/api/predict', require('./routes/predict')); // AI prediction route added here
+app.use('/api/predict', require('./routes/predict'));
+app.use('/api/heatmap', require('./routes/heatmap'));
 
 // Basic Test Route
 app.get('/', (req, res) => {
