@@ -39,8 +39,8 @@ def train_model():
     unique_areas = df[['town', 'area_code']].drop_duplicates()
     area_mapping = dict(zip(unique_areas['town'].str.upper(), unique_areas['area_code']))
 
-    # 2. Pre-aggregate 60,000 rows into 35 district summaries for fast map rendering
-    grouped = df.groupby(['area_code', 'town']).agg(
+    # 2. Pre-aggregate 60,000 rows into 210 highly specific subdivisions
+    grouped = df.groupby(['subdivision', 'town', 'area_code']).agg(
         lat=('latitude', 'mean'),
         lng=('longitude', 'mean'),
         incidents=('incident_id', 'count'),
@@ -52,17 +52,18 @@ def train_model():
     level_map = {'High': 'High', 'Medium': 'Moderate', 'Low': 'Low'}
     heatmap_cache = [
         {
-            "id": int(row['area_code']),
-            "name": row['town'],
+            "id": index,
+            "name": row['subdivision'], 
+            "town": row['town'],
             "lat": round(float(row['lat']), 5),
             "lng": round(float(row['lng']), 5),
             "risk": level_map.get(row['dominant_level'], 'Moderate'),
             "type": row['top_crime'],
             "incidents": int(row['incidents']),
             "avgScore": round(float(row['avg_risk']) * 10, 1),
-            "radius": max(10, min(32, int(row['avg_risk'] * 3.5)))
+            "radius": max(5, min(16, int(row['avg_risk'] * 2.2))) # Scaled down for 210 distinct points
         }
-        for _, row in grouped.iterrows()
+        for index, row in grouped.iterrows()
     ]
 
     print(f"📊 [AI ENGINE] Aggregated {len(df)} records into {len(heatmap_cache)} Karachi districts.")
