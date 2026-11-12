@@ -137,9 +137,9 @@ export default function Heatmap() {
         {/* Right Map Canvas */}
         <div className="flex-1 h-[500px] lg:h-auto min-h-[500px] relative">
           <MapContainer center={[24.89, 67.07]} zoom={11} zoomControl={true} className="w-full h-full z-[1]">
-            <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+           <TileLayer
+              url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+              attribution='&copy; <a href="https://carto.com/">CartoDB</a>'
             />
 
             {filteredZones.map((zone) => (
@@ -157,6 +157,7 @@ export default function Heatmap() {
                 <Tooltip direction="top" offset={[0, -10]} opacity={1}>
                   <div className="p-1 text-slate-900 font-sans">
                     <div className="font-bold text-sm">{zone.name}</div>
+                    <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">{zone.town}</div>
                     <div className="text-xs text-slate-600">Dominant Crime: <b>{zone.type}</b></div>
                     <div className="text-xs text-slate-600">Risk Index: <b>{zone.avgScore} / 100</b></div>
                     <div className="text-xs text-slate-600">Historical Incidents: <b>{zone.incidents.toLocaleString()}</b></div>
