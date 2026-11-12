@@ -4,11 +4,10 @@ from sklearn.ensemble import RandomForestRegressor
 import pandas as pd
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-import random
+import os
 
 app = FastAPI(title="CrimeGuard AI Prediction Engine")
 
-# Allow the Express backend to communicate with this Python API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,72 +19,85 @@ class PredictionRequest(BaseModel):
     location: str
     time: str
 
-# Initialize the Machine Learning Model
 ai_model = RandomForestRegressor(n_estimators=100, random_state=42)
-
-# Feature Encoding for Karachi Districts
-location_encoded = {
-    'LYARI': 3, 'KORANGI': 3, 'ORANGI': 3, 'SADDAR': 3, 'MACHAR COLONY': 3,
-    'GULSHAN': 2, 'NAZIMABAD': 2, 'TARIQ ROAD': 2, 'JOHAR': 2, 'MALIR': 2,
-    'DHA': 1, 'CLIFTON': 1, 'CANTT': 1, 'BAHRIA': 1
-}
+area_mapping = {}
+heatmap_cache = []
 
 @app.on_event("startup")
 def train_model():
-    print("\n🧠 [AI ENGINE] Booting up and generating training data...")
-    
-    # 1. Generate Synthetic Training Data (For FYP Demonstration)
-    training_data = []
-    for loc_name, risk_code in location_encoded.items():
-        for hour in range(24):
-            # Base logic for the AI to learn from
-            base_score = risk_code * 22 
-            if hour >= 22 or hour <= 4:
-                base_score += 30  # Nighttime spike
-            elif hour >= 18 or hour <= 21:
-                base_score += 15  # Evening spike
-                
-            # Inject realistic variance so the ML model has to actually "learn"
-            variance = random.randint(-8, 8)
-            final_score = max(1, min(100, base_score + variance))
-            
-            training_data.append({'loc_code': risk_code, 'hour': hour, 'risk_score': final_score})
-    
-    # 2. Train the Random Forest Model
-    print("⏳ [AI ENGINE] Training RandomForestRegressor model...")
-    df = pd.DataFrame(training_data)
-    X = df[['loc_code', 'hour']]
+    global area_mapping, heatmap_cache
+    print("\n🧠 [AI ENGINE] Booting up and loading real dataset...")
+
+    file_path = 'karachi_crime_dataset_final.csv'
+    if not os.path.exists(file_path):
+        print(f"❌ ERROR: Cannot find {file_path} in the ai-service folder!")
+        return
+
+    df = pd.read_csv(file_path)
+
+    # 1. Build town-to-code lookup for predictions
+    unique_areas = df[['town', 'area_code']].drop_duplicates()
+    area_mapping = dict(zip(unique_areas['town'].str.upper(), unique_areas['area_code']))
+
+    # 2. Pre-aggregate 60,000 rows into 35 district summaries for fast map rendering
+    grouped = df.groupby(['area_code', 'town']).agg(
+        lat=('latitude', 'mean'),
+        lng=('longitude', 'mean'),
+        incidents=('incident_id', 'count'),
+        avg_risk=('risk_score', 'mean'),
+        dominant_level=('area_risk_level', lambda x: x.mode()[0]),
+        top_crime=('crime_type', lambda x: x.mode()[0])
+    ).reset_index()
+
+    level_map = {'High': 'High', 'Medium': 'Moderate', 'Low': 'Low'}
+    heatmap_cache = [
+        {
+            "id": int(row['area_code']),
+            "name": row['town'],
+            "lat": round(float(row['lat']), 5),
+            "lng": round(float(row['lng']), 5),
+            "risk": level_map.get(row['dominant_level'], 'Moderate'),
+            "type": row['top_crime'],
+            "incidents": int(row['incidents']),
+            "avgScore": round(float(row['avg_risk']) * 10, 1),
+            "radius": max(10, min(32, int(row['avg_risk'] * 3.5)))
+        }
+        for _, row in grouped.iterrows()
+    ]
+
+    print(f"📊 [AI ENGINE] Aggregated {len(df)} records into {len(heatmap_cache)} Karachi districts.")
+    print("⏳ [AI ENGINE] Training RandomForestRegressor model on real data...")
+
+    # 3. Train Random Forest model
+    X = df[['area_code', 'hour']]
     y = df['risk_score']
-    
     ai_model.fit(X, y)
-    print("✅ [AI ENGINE] Model trained successfully! Ready for predictions.\n")
+    print("✅ [AI ENGINE] Model trained successfully! Ready for live predictions.\n")
+
+@app.get("/heatmap-data")
+def get_heatmap_data():
+    return {"zones": heatmap_cache}
 
 @app.post("/predict")
 def predict_risk(req: PredictionRequest):
-    # Parse the incoming time to extract the hour
     hour = int(req.time.split(':')[0])
-    
-    # Match the location string to our encoded feature map
     search_loc = req.location.upper()
-    loc_code = 2  # Default to moderate risk (2) if the area is unknown
-    
-    for key, val in location_encoded.items():
-        if key in search_loc:
-            loc_code = val
+
+    loc_code = 17  # Default to Saddar if not matched
+    for town_name, code in area_mapping.items():
+        if town_name in search_loc or search_loc in town_name:
+            loc_code = code
             break
-            
-    # Ask the trained AI model to predict the score based on its training
-    input_features = pd.DataFrame([[loc_code, hour]], columns=['loc_code', 'hour'])
-    predicted_score = int(ai_model.predict(input_features)[0])
-    
-    # Ensure the score stays between 1 and 100
-    final_score = max(1, min(100, predicted_score))
-    
+
+    input_features = pd.DataFrame([[loc_code, hour]], columns=['area_code', 'hour'])
+    predicted_score = float(ai_model.predict(input_features)[0])
+    final_score = int(max(1, min(100, predicted_score * 10)))
+
     return {
         "location": req.location,
         "time": req.time,
         "ai_risk_score": final_score,
-        "model_used": "RandomForestRegressor"
+        "model_used": "RandomForestRegressor (Trained on karachi_crime_dataset_final.csv)"
     }
 
 if __name__ == "__main__":
