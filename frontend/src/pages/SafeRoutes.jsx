@@ -1,118 +1,99 @@
-import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from 'react-leaflet';
-import { Navigation, MapPin, ShieldAlert, CheckCircle, Info, Layers } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { MapContainer, TileLayer, CircleMarker, useMap, useMapEvents } from 'react-leaflet';
+import { Navigation, ShieldAlert, CheckCircle, Info, Layers, Map as MapIcon, Clock, Moon } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-routing-machine';
 import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
+import 'leaflet-control-geocoder/dist/Control.Geocoder.css';
+import 'leaflet-control-geocoder';
 import * as turf from '@turf/turf';
 
-// Custom icons for Start and End points
-const startIcon = L.divIcon({
-  className: 'custom-icon',
-  html: `<div style="background-color: #22c55e; width: 16px; height: 16px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.5);"></div>`,
-  iconSize: [16, 16],
-  iconAnchor: [8, 8]
-});
-
-const endIcon = L.divIcon({
-  className: 'custom-icon',
-  html: `<div style="background-color: #3b82f6; width: 16px; height: 16px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.5);"></div>`,
-  iconSize: [16, 16],
-  iconAnchor: [8, 8]
-});
-
-// Routing & Spatial Intersection Component
-function RoutingEngine({ start, end, zones, onRouteCalculated }) {
+// ==========================================
+// THE ROUTING ENGINE (Handles Map Search & API)
+// ==========================================
+function RoutingEngine({ start, end, onRoutesFound, onRouteSelected }) {
   const map = useMap();
+  const routingControlRef = useRef(null);
 
   useEffect(() => {
-    if (!start || !end) return;
-
-    // 1. Initialize OSRM Street Routing
-    const routingControl = L.Routing.control({
-      waypoints: [
-        L.latLng(start.lat, start.lng),
-        L.latLng(end.lat, end.lng)
-      ],
+    // Initialize the OSRM Control with Geocoding Search Box
+    const control = L.Routing.control({
+      waypoints: [],
       routeWhileDragging: false,
-      show: false, // Hides the default OSRM turn-by-turn text box
-      addWaypoints: false,
+      showAlternatives: true, // Asks OSRM for multiple route options
+      fitSelectedRoutes: true,
+      show: true, // Shows the search box panel
+      geocoder: L.Control.Geocoder.nominatim(), // Adds text search
       lineOptions: {
-        styles: [{ color: '#3b82f6', opacity: 0.8, weight: 6 }] // Blue safe route
+        styles: [{ color: '#3b82f6', opacity: 0.8, weight: 6 }]
+      },
+      altLineOptions: {
+        styles: [{ color: '#64748B', opacity: 0.6, weight: 5 }]
       }
     }).addTo(map);
 
-    // 2. Intercept the route once calculated to check for risk
-    routingControl.on('routesfound', function (e) {
-      const route = e.routes[0];
-      const routeCoords = route.coordinates.map(c => [c.lng, c.lat]);
-      
-      // Convert OSRM route into a Turf.js LineString
-      const routeLine = turf.lineString(routeCoords);
-      const warnings = [];
-
-      // Mathematically check intersection against High-Risk zones (Score 65+)
-      zones.forEach(zone => {
-        if (parseFloat(zone.avgScore) >= 65) {
-          const center = [parseFloat(zone.lng), parseFloat(zone.lat)];
-          // Assuming a 1.5km radius for the high-risk block's influence
-          const zoneCircle = turf.circle(center, 1.5, { units: 'kilometers' });
-          
-          if (turf.booleanIntersects(routeLine, zoneCircle)) {
-            warnings.push(zone);
-          }
-        }
-      });
-
-      // Update UI with distance, time, and risks
-      onRouteCalculated({
-        distance: (route.summary.totalDistance / 1000).toFixed(1), // km
-        time: Math.round(route.summary.totalTime / 60), // minutes
-        risks: warnings
-      });
-
-      // Turn route line red if dangerous
-      if (warnings.length > 0) {
-        routingControl.getRouter().options.lineOptions = {
-          styles: [{ color: '#ef4444', opacity: 0.9, weight: 6 }]
-        };
-      }
+    // Pass all found routes back to React for AI evaluation
+    control.on('routesfound', (e) => {
+      onRoutesFound(e.routes);
     });
 
-    return () => map.removeControl(routingControl);
-  }, [start, end, map, zones, onRouteCalculated]);
+    // Detect when the user clicks a grey alternative route on the map
+    control.on('routeselected', (e) => {
+      onRouteSelected(e.route);
+    });
+
+    routingControlRef.current = control;
+
+    return () => map.removeControl(control);
+  }, [map]);
+
+  // Sync map clicks (Point A / Point B) with the Search Box
+  useEffect(() => {
+    if (routingControlRef.current) {
+      const waypoints = [
+        start ? L.latLng(start.lat, start.lng) : null,
+        end ? L.latLng(end.lat, end.lng) : null
+      ].filter(Boolean);
+      
+      if (waypoints.length > 0) {
+        routingControlRef.current.setWaypoints(waypoints);
+      }
+    }
+  }, [start, end]);
 
   return null;
 }
 
-// Click handler to drop A and B pins
-function MapPinDropper({ start, end, setStart, setEnd, resetRoute }) {
+// ==========================================
+// MAP CLICK LISTENER
+// ==========================================
+function MapPinDropper({ start, end, setStart, setEnd }) {
   useMapEvents({
     click(e) {
-      if (!start) {
-        setStart(e.latlng);
-      } else if (!end) {
-        setEnd(e.latlng);
-      } else {
-        // Reset if both pins are already placed
-        resetRoute();
-        setStart(e.latlng);
-      }
+      if (!start) setStart(e.latlng);
+      else if (!end) setEnd(e.latlng);
     }
   });
   return null;
 }
 
+// ==========================================
+// MAIN PAGE
+// ==========================================
 export default function SafeRoutes() {
   const [zones, setZones] = useState([]);
   const [start, setStart] = useState(null);
   const [end, setEnd] = useState(null);
-  const [routeInfo, setRouteInfo] = useState(null);
+  const [timeOfDay, setTimeOfDay] = useState('Day');
+  
+  // Raw routes from OSRM
+  const [osrmRoutes, setOsrmRoutes] = useState([]);
+  // Which route the user currently has selected
+  const [activeRouteIndex, setActiveRouteIndex] = useState(0);
 
   useEffect(() => {
-    // Fetch AI zones for intersection checking
     const fetchHeatmapData = async () => {
       try {
         const res = await fetch('http://localhost:5000/api/heatmap');
@@ -125,21 +106,77 @@ export default function SafeRoutes() {
     fetchHeatmapData();
   }, []);
 
-  const resetRoute = () => {
-    setStart(null);
-    setEnd(null);
-    setRouteInfo(null);
-  };
+  // Filter only High Risk zones (Scores 65+)
+  const dangerZones = useMemo(() => zones.filter(z => parseFloat(z.avgScore) >= 65), [zones]);
 
-  // Filter only high-risk zones to display as obstacles on the map
-  const dangerZones = zones.filter(z => parseFloat(z.avgScore) >= 65);
+  // ==========================================
+  // TURF.JS MATHEMATICAL ROUTE EVALUATION
+  // ==========================================
+  const evaluatedRoutes = useMemo(() => {
+    if (osrmRoutes.length === 0) return [];
+
+    // If it's night, expand the danger radius by 80% to account for less safety
+    const riskRadiusKm = timeOfDay === 'Night' ? 1.8 : 1.0;
+
+    return osrmRoutes.map((route, index) => {
+      const routeLine = turf.lineString(route.coordinates.map(c => [c.lng, c.lat]));
+      const warnings = [];
+      let totalRiskPenalty = 0;
+
+      dangerZones.forEach(zone => {
+        const center = [parseFloat(zone.lng), parseFloat(zone.lat)];
+        const zoneCircle = turf.circle(center, riskRadiusKm, { units: 'kilometers' });
+        
+        if (turf.booleanIntersects(routeLine, zoneCircle)) {
+          warnings.push(zone);
+          totalRiskPenalty += parseFloat(zone.avgScore);
+        }
+      });
+
+      return {
+        id: index,
+        name: route.name || (index === 0 ? 'Fastest Route' : `Alternative ${index}`),
+        distance: (route.summary.totalDistance / 1000).toFixed(1),
+        time: Math.round(route.summary.totalTime / 60),
+        warnings,
+        riskScore: totalRiskPenalty,
+        isSafest: false // Calculated below
+      };
+    });
+  }, [osrmRoutes, dangerZones, timeOfDay]);
+
+  // Determine which evaluated route is the mathematically safest
+  if (evaluatedRoutes.length > 0) {
+    const minRisk = Math.min(...evaluatedRoutes.map(r => r.riskScore));
+    evaluatedRoutes.forEach(r => {
+      if (r.riskScore === minRisk) r.isSafest = true;
+    });
+  }
+
+  const activeRoute = evaluatedRoutes[activeRouteIndex];
 
   return (
     <div className="min-h-screen lg:h-screen lg:overflow-hidden bg-[#0F172A] text-[#F1F5F9] flex flex-col font-sans">
       <style>{`
-        .leaflet-container { background: #1b1f27; }
-        .cg-tiles { filter: invert(1) hue-rotate(180deg) brightness(.82) contrast(.92) saturate(.45); }
-        .leaflet-routing-container { display: none !important; } 
+        /* Native Dark UI overrides for the Search Box */
+        .leaflet-routing-container {
+          background-color: rgba(30, 41, 59, 0.95) !important;
+          color: #F1F5F9 !important;
+          border: 1px solid rgba(255,255,255,0.1) !important;
+          backdrop-filter: blur(10px);
+          border-radius: 16px !important;
+          padding: 10px !important;
+        }
+        .leaflet-routing-geocoders input {
+          background-color: #0F172A !important;
+          color: white !important;
+          border: 1px solid rgba(255,255,255,0.1) !important;
+          border-radius: 8px !important;
+          padding: 8px !important;
+        }
+        .leaflet-routing-geocoder { border-bottom: none !important; }
+        .leaflet-routing-remove-waypoint { display: none !important; }
+        .leaflet-routing-alternatives-container { display: none !important; } /* We build our own UI for this */
       `}</style>
 
       <Navbar />
@@ -147,84 +184,91 @@ export default function SafeRoutes() {
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row relative overflow-hidden">
         
         {/* Left Sidebar */}
-        <div className="w-full lg:w-96 bg-[#1E293B] border-r border-white/10 p-6 flex flex-col gap-6 z-10 overflow-y-auto">
+        <div className="w-full lg:w-[450px] bg-[#1E293B] border-r border-white/10 p-6 flex flex-col gap-6 z-10 overflow-y-auto">
           <div>
             <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#0F172A] border border-white/10 text-[#3b82f6] text-xs font-bold tracking-widest uppercase mb-3">
               <Navigation size={14} /> Tactical Pathfinding
             </span>
             <h1 className="text-3xl font-black text-white tracking-tight">Safe Routes</h1>
             <p className="text-[#94A3B8] text-sm mt-1">
-              Real-time route intersection checking against high-risk crime districts.
+              Search locations or click the map to generate risk-evaluated alternatives.
             </p>
           </div>
 
-          <div className="bg-[#0F172A] border border-white/10 rounded-2xl p-5 space-y-4">
-            <div className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider mb-2">
-              Route Coordinates
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500/50 text-green-500">
-                <MapPin size={16} />
-              </div>
-              <div className="flex-1">
-                <div className="text-xs text-slate-500 font-bold uppercase">Departure (Point A)</div>
-                <div className="text-sm font-semibold text-white">
-                  {start ? `${start.lat.toFixed(4)}, ${start.lng.toFixed(4)}` : 'Click map to set start'}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-500/50 text-blue-500">
-                <MapPin size={16} />
-              </div>
-              <div className="flex-1">
-                <div className="text-xs text-slate-500 font-bold uppercase">Destination (Point B)</div>
-                <div className="text-sm font-semibold text-white">
-                  {end ? `${end.lat.toFixed(4)}, ${end.lng.toFixed(4)}` : 'Click map to set destination'}
-                </div>
-              </div>
-            </div>
-
-            {start && end && (
+          {/* Time of Day Context */}
+          <div className="bg-[#0F172A] border border-white/10 rounded-2xl p-4">
+            <div className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider mb-3">Context Variables</div>
+            <div className="flex gap-2">
               <button 
-                onClick={resetRoute}
-                className="w-full mt-2 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold uppercase tracking-wider transition-colors border border-white/5"
+                onClick={() => setTimeOfDay('Day')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all ${timeOfDay === 'Day' ? 'bg-[#3b82f6] text-white' : 'bg-[#1E293B] text-[#94A3B8] border border-white/5'}`}
               >
-                Clear Route
+                <Clock size={14} /> Daytime
               </button>
+              <button 
+                onClick={() => setTimeOfDay('Night')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all ${timeOfDay === 'Night' ? 'bg-[#8b5cf6] text-white shadow-lg shadow-purple-500/20' : 'bg-[#1E293B] text-[#94A3B8] border border-white/5'}`}
+              >
+                <Moon size={14} /> Night Mode
+              </button>
+            </div>
+            {timeOfDay === 'Night' && (
+              <div className="mt-3 text-[10px] text-[#8b5cf6] font-bold">
+                * Night Mode active: Intersection sensitivity radius increased by 80%.
+              </div>
             )}
           </div>
 
-          {/* Route Analysis Results */}
-          {routeInfo && (
-            <div className="bg-[#0F172A] border border-white/10 rounded-2xl p-5 space-y-4 fade-in">
+          {/* Route Options Comparison */}
+          {evaluatedRoutes.length > 0 && (
+            <div className="space-y-3 fade-in">
               <div className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider flex items-center gap-2">
-                <Info size={14} /> AI Trip Analysis
+                <MapIcon size={14} /> Available Routes
               </div>
               
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-[#1E293B] p-3 rounded-xl border border-white/5 text-center">
-                  <div className="text-xl font-black text-white">{routeInfo.time} <span className="text-sm text-slate-500">min</span></div>
-                  <div className="text-[10px] text-[#64748B] uppercase font-bold">Est. Travel Time</div>
-                </div>
-                <div className="bg-[#1E293B] p-3 rounded-xl border border-white/5 text-center">
-                  <div className="text-xl font-black text-white">{routeInfo.distance} <span className="text-sm text-slate-500">km</span></div>
-                  <div className="text-[10px] text-[#64748B] uppercase font-bold">Total Distance</div>
-                </div>
+              <div className="flex flex-col gap-2">
+                {evaluatedRoutes.map((route, idx) => (
+                  <div 
+                    key={idx}
+                    onClick={() => setActiveRouteIndex(idx)} // In a real app, you'd trigger L.Routing to switch lines here too
+                    className={`p-3 rounded-xl border cursor-pointer transition-all ${activeRouteIndex === idx ? 'bg-[#0F172A] border-[#3b82f6] shadow-[0_0_15px_rgba(59,130,246,0.15)]' : 'bg-[#1E293B] border-white/5 hover:border-white/20'}`}
+                  >
+                    <div className="flex justify-between items-center mb-1">
+                      <div className="font-bold text-sm text-white flex items-center gap-2">
+                        {idx === 0 ? 'Fastest Route' : `Alternative ${idx}`}
+                        {route.isSafest && <span className="bg-green-500/20 text-green-400 text-[9px] px-2 py-0.5 rounded-full uppercase">Safest</span>}
+                      </div>
+                      <div className="text-sm font-black text-white">{route.time} <span className="text-[10px] text-slate-500 font-normal">min</span></div>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400">{route.distance} km</span>
+                      <span className={route.warnings.length > 0 ? 'text-red-400 font-bold' : 'text-green-400 font-bold'}>
+                        {route.warnings.length} Risk Zones
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Detailed Risk Breakdown for Active Route */}
+          {activeRoute && (
+            <div className="bg-[#0F172A] border border-white/10 rounded-2xl p-5 space-y-4 mt-auto fade-in">
+              <div className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider flex items-center gap-2">
+                <Info size={14} /> Active Route Analysis
               </div>
 
-              {routeInfo.risks.length > 0 ? (
-                <div className="mt-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
+              {activeRoute.warnings.length > 0 ? (
+                <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
                   <div className="flex items-center gap-2 text-red-500 font-black mb-2">
                     <ShieldAlert size={18} /> SEVERE RISK WARNING
                   </div>
                   <p className="text-xs text-red-200/80 font-medium mb-3">
-                    This route physically intersects with {routeInfo.risks.length} known high-incident crime zones.
+                    This route intersects {activeRoute.warnings.length} high-incident zones.
                   </p>
-                  <ul className="space-y-2">
-                    {routeInfo.risks.map((r, i) => (
+                  <ul className="space-y-2 max-h-[150px] overflow-y-auto pr-2">
+                    {activeRoute.warnings.map((r, i) => (
                       <li key={i} className="bg-red-500/20 px-3 py-2 rounded-lg text-xs border border-red-500/20">
                         <div className="font-bold text-red-400">{r.name}, {r.town}</div>
                         <div className="text-red-300/80">Primary Threat: {r.type}</div>
@@ -233,12 +277,12 @@ export default function SafeRoutes() {
                   </ul>
                 </div>
               ) : (
-                <div className="mt-4 p-4 bg-green-500/10 border border-green-500/30 rounded-xl">
+                <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-xl">
                   <div className="flex items-center gap-2 text-green-500 font-black mb-2">
                     <CheckCircle size={18} /> ROUTE CLEARED
                   </div>
                   <p className="text-xs text-green-200/80 font-medium">
-                    This path does not intersect with any current high-risk AI warning zones. Exercise standard caution.
+                    This path safely bypasses all current AI warning zones based on {timeOfDay.toLowerCase()} thresholds.
                   </p>
                 </div>
               )}
@@ -249,45 +293,35 @@ export default function SafeRoutes() {
         {/* Right Map Canvas */}
         <div className="flex-1 min-h-[500px] relative">
           <MapContainer center={[24.89, 67.07]} zoom={12} zoomControl={true} className="w-full h-full z-[1]">
+            {/* Native Dark Map - NO CSS INVERT MEANS NO LAG! */}
             <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution='&copy; OpenStreetMap'
-              className="cg-tiles"
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+              attribution='&copy; Esri'
               maxZoom={19}
             />
 
-            {/* Render Danger Zones as visual obstacles */}
+            {/* Dynamic Danger Radius based on Time of Day */}
             {dangerZones.map((zone, i) => (
               <CircleMarker
                 key={`danger-${i}`}
                 center={[parseFloat(zone.lat), parseFloat(zone.lng)]}
-                radius={25}
-                pathOptions={{ color: 'transparent', fillColor: '#ef4444', fillOpacity: 0.15 }}
-              >
-                <Tooltip direction="top">High Risk Zone: {zone.name}</Tooltip>
-              </CircleMarker>
+                radius={timeOfDay === 'Night' ? 35 : 20} 
+                pathOptions={{ color: '#ef4444', weight: 1, fillColor: '#ef4444', fillOpacity: timeOfDay === 'Night' ? 0.25 : 0.15 }}
+              />
             ))}
 
-            {/* Start and End Markers */}
-            {start && <Marker position={start} icon={startIcon} />}
-            {end && <Marker position={end} icon={endIcon} />}
-
-            {/* The Engine */}
-            <MapPinDropper start={start} end={end} setStart={setStart} setEnd={setEnd} resetRoute={resetRoute} />
-            <RoutingEngine start={start} end={end} zones={zones} onRouteCalculated={setRouteInfo} />
-            
+            {/* Listeners & Engines */}
+            <MapPinDropper start={start} end={end} setStart={setStart} setEnd={setEnd} />
+            <RoutingEngine 
+              start={start} 
+              end={end} 
+              onRoutesFound={(routes) => setOsrmRoutes(routes)} 
+              onRouteSelected={(route) => {
+                const foundIndex = osrmRoutes.findIndex(r => r.name === route.name);
+                if (foundIndex !== -1) setActiveRouteIndex(foundIndex);
+              }} 
+            />
           </MapContainer>
-
-          {!start && (
-            <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[1000] rounded-full bg-[#0F172A]/90 border border-green-500/50 px-6 py-3 text-sm font-bold text-green-400 backdrop-blur pointer-events-none shadow-[0_0_15px_rgba(34,197,94,0.3)] animate-pulse">
-              1. Click anywhere to set Departure Point
-            </div>
-          )}
-          {start && !end && (
-            <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[1000] rounded-full bg-[#0F172A]/90 border border-blue-500/50 px-6 py-3 text-sm font-bold text-blue-400 backdrop-blur pointer-events-none shadow-[0_0_15px_rgba(59,130,246,0.3)] animate-pulse">
-              2. Click anywhere to set Destination
-            </div>
-          )}
         </div>
       </div>
     </div>
