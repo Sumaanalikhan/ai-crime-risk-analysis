@@ -13,6 +13,7 @@
     "@turf/turf": "^7.4.0",
     "axios": "^1.21.0",
     "leaflet": "^1.9.4",
+    "leaflet-control-geocoder": "^4.0.0",
     "leaflet-routing-machine": "^3.2.12",
     "leaflet.heat": "^1.0.0",
     "lucide-react": "^1.65.0",
