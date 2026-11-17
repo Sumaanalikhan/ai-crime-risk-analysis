@@ -1,1522 +1,527 @@
-// frontend/src/pages/SafeRoutes.jsx
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+// src/pages/Heatmap.jsx
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   MapContainer,
   TileLayer,
-  Circle,
+  CircleMarker,
   Marker,
-  Polyline,
   Tooltip,
-  Pane,
   useMap,
   useMapEvents,
 } from 'react-leaflet';
-import {
-  Navigation,
-  ShieldAlert,
-  CheckCircle,
-  Info,
-  Map as MapIcon,
-  Clock,
-  Moon,
-  Sun,
-  Search,
-  RotateCcw,
-  Zap,
-  Shield,
-  Scale,
-  ArrowUpDown,
-  Loader2,
-  AlertTriangle,
-} from 'lucide-react';
+import { Filter, ShieldAlert, Layers } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import * as turf from '@turf/turf';
 
 // ==========================================
-// CONSTANTS
+// THERMAL ENGINE (float density field)
 // ==========================================
-const API_URL = 'http://localhost:5000/api/heatmap';
-const KARACHI_CENTER = [24.89, 67.07];
-const DANGER_THRESHOLD = 65; // avgScore >= this is a "hotspot"
-const NIGHT_MULT = 1.5;
-const INFLUENCE_KM_DAY = 1.1; // radius where a zone penalises nearby roads
-const INFLUENCE_KM_NIGHT = INFLUENCE_KM_DAY * NIGHT_MULT;
-const WARN_KM_DAY = 0.9; // route within this distance of a hotspot = "enters" it
-const WARN_KM_NIGHT = WARN_KM_DAY * NIGHT_MULT;
-const MAX_SNAP_METERS = 3000;
-const RISK_FLOOR = 25;
-
-const OVERPASS_MIRRORS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
+const GRADIENT = [
+  [0.0, '#1a1aff'],
+  [0.2, '#00b4ff'],
+  [0.38, '#00f0d0'],
+  [0.52, '#3ddc4a'],
+  [0.68, '#f5f500'],
+  [0.84, '#ff8c00'],
+  [1.0, '#ff1a00'],
 ];
 
-const PROFILES = [
-  {
-    key: 'safe',
-    title: 'Completely Safe (Zero-Risk Priority)',
-    subtitle: 'Longest detour to avoid all hotspots',
-    color: '#22c55e',
-    alpha: 28.0,
-  },
-  {
-    key: 'balanced',
-    title: 'Balanced Route (Moderate Risk)',
-    subtitle: 'Avoids severe hotspots, moderate time',
-    color: '#3b82f6',
-    alpha: 4.5,
-  },
-  {
-    key: 'fast',
-    title: 'Fastest / Direct (High Risk)',
-    subtitle: 'Quickest path, ignores crime',
-    color: '#ef4444',
-    alpha: 0.0,
-  },
-];
+function buildPalette() {
+  const c = document.createElement('canvas');
+  c.width = 1;
+  c.height = 256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, 256);
+  GRADIENT.forEach(([s, col]) => g.addColorStop(s, col));
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 1, 256);
+  return ctx.getImageData(0, 0, 1, 256).data;
+}
 
-// Free-flow speeds (km/h) used for travel-time cost
-const SPEEDS = {
-  motorway: 70,
-  motorway_link: 45,
-  trunk: 55,
-  trunk_link: 40,
-  primary: 45,
-  primary_link: 35,
-  secondary: 38,
-  secondary_link: 30,
-  tertiary: 32,
-  tertiary_link: 28,
-  unclassified: 25,
-  residential: 20,
+const smoothstep = (a, b, x) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
 };
 
-// ==========================================
-// MAP ICONS
-// ==========================================
-const pinIcon = (color, letter) =>
-  L.divIcon({
-    className: 'cg-pin',
-    html: `<div style="background:${color};width:28px;height:28px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px ${color};display:flex;align-items:center;justify-content:center;color:#fff;font:800 12px/1 system-ui,sans-serif;">${letter}</div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-  });
+function createHeatLayer(points, opts) {
+  const palette = buildPalette();
+  const canvas = document.createElement('canvas');
+  canvas.style.position = 'absolute';
+  canvas.style.pointerEvents = 'none';
+  let map = null;
+  const SCALE = 0.5;
 
-const startIcon = pinIcon('#22c55e', 'A');
-const endIcon = pinIcon('#3b82f6', 'B');
-
-// ==========================================
-// SMALL HELPERS
-// ==========================================
-const sleep0 = () => new Promise((r) => setTimeout(r, 0));
-const abortError = () => new DOMException('Aborted', 'AbortError');
-const fmtCoord = (p) => `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
-
-function distMeters(aLat, aLng, bLat, bLng) {
-  const dLat = (bLat - aLat) * 111320;
-  const dLng = (bLng - aLng) * 111320 * Math.cos((((aLat + bLat) / 2) * Math.PI) / 180);
-  return Math.sqrt(dLat * dLat + dLng * dLng);
-}
-
-async function fetchJson(url, options, timeoutMs, parentSignal) {
-  const ctrl = new AbortController();
-  const onAbort = () => ctrl.abort();
-  if (parentSignal) {
-    if (parentSignal.aborted) ctrl.abort();
-    else parentSignal.addEventListener('abort', onAbort, { once: true });
-  }
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { ...options, signal: ctrl.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } finally {
-    clearTimeout(timer);
-    if (parentSignal) parentSignal.removeEventListener('abort', onAbort);
-  }
-}
-
-function hashNodes(nodes) {
-  let h = 2166136261;
-  for (const x of nodes) {
-    h ^= x;
-    h = Math.imul(h, 16777619);
-  }
-  return `${(h >>> 0).toString(36)}:${nodes.length}`;
-}
-
-// ==========================================
-// MIN-HEAP PRIORITY QUEUE
-// ==========================================
-class MinHeap {
-  constructor() {
-    this.heap = [];
-  }
-  get size() {
-    return this.heap.length;
-  }
-  push(node) {
-    const h = this.heap;
-    h.push(node);
-    let i = h.length - 1;
-    while (i > 0) {
-      const p = (i - 1) >> 1;
-      if (h[p].cost <= node.cost) break;
-      h[i] = h[p];
-      i = p;
-    }
-    h[i] = node;
-  }
-  pop() {
-    const h = this.heap;
-    if (h.length === 0) return null;
-    const top = h[0];
-    const last = h.pop();
-    if (h.length > 0) {
-      let i = 0;
-      const n = h.length;
-      while (true) {
-        let c = 2 * i + 1;
-        if (c >= n) break;
-        if (c + 1 < n && h[c + 1].cost < h[c].cost) c++;
-        if (h[c].cost >= last.cost) break;
-        h[i] = h[c];
-        i = c;
-      }
-      h[i] = last;
-    }
-    return top;
-  }
-}
-
-// ==========================================
-// CRIME RISK SPATIAL INDEX
-// ==========================================
-const CELL = 0.02; // ~2.2 km, larger than the max influence radius
-
-function buildZoneIndex(zones) {
-  const idx = new Map();
-  for (const z of zones) {
-    const key = `${Math.floor(z.lat / CELL)}:${Math.floor(z.lng / CELL)}`;
-    if (!idx.has(key)) idx.set(key, []);
-    idx.get(key).push(z);
-  }
-  return idx;
-}
-
-// Returns [dayRisk, nightRisk] (0-100) for a point, based on nearby hotspots.
-function pointRisks(idx, lat, lng) {
-  const cx = Math.floor(lat / CELL);
-  const cy = Math.floor(lng / CELL);
-  let day = 0;
-  let night = 0;
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
-      const list = idx.get(`${cx + dx}:${cy + dy}`);
-      if (!list) continue;
-      for (const z of list) {
-        const dLat = (lat - z.lat) * 111.2;
-        const dLng = (lng - z.lng) * 100.7;
-        const d = Math.sqrt(dLat * dLat + dLng * dLng);
-        if (d <= INFLUENCE_KM_NIGHT) {
-          const r = z.score * (0.5 + 0.5 * (1 - d / INFLUENCE_KM_NIGHT));
-          if (r > night) night = r;
-        }
-        if (d <= INFLUENCE_KM_DAY) {
-          const r = z.score * (0.25 + 0.75 * (1 - d / INFLUENCE_KM_DAY));
-          if (r > day) day = r;
-        }
-      }
-    }
-  }
-  return [Math.min(100, day), Math.min(100, night)];
-}
-
-// ==========================================
-// GRAPH CONSTRUCTION
-// ==========================================
-function linkEdge(adj, adjAny, u, v, d, t, r0, r1, dir) {
-  // dir: 0 two-way, 1 one-way u->v, -1 one-way v->u
-  if (dir >= 0) {
-    const e = { to: v, d, t, r0, r1 };
-    adj[u].push(e);
-    adjAny[u].push(e);
-  } else {
-    adjAny[u].push({ to: v, d, t, r0, r1 });
-  }
-  if (dir <= 0) {
-    const e = { to: u, d, t, r0, r1 };
-    adj[v].push(e);
-    adjAny[v].push(e);
-  } else {
-    adjAny[v].push({ to: u, d, t, r0, r1 });
-  }
-}
-
-function finalizeGraph(lat, lng, adj, adjAny, source) {
-  const n = lat.length;
-  const comp = new Int32Array(n).fill(-1);
-  const sizes = [];
-  for (let s = 0; s < n; s++) {
-    if (comp[s] !== -1) continue;
-    const id = sizes.length;
-    let count = 0;
-    const stack = [s];
-    comp[s] = id;
-    while (stack.length) {
-      const u = stack.pop();
-      count++;
-      const list = adjAny[u];
-      for (let i = 0; i < list.length; i++) {
-        const v = list[i].to;
-        if (comp[v] === -1) {
-          comp[v] = id;
-          stack.push(v);
-        }
-      }
-    }
-    sizes.push(count);
-  }
-  return { n, lat, lng, adj, adjAny, comp, sizes, source };
-}
-
-function onewayDir(tags) {
-  const o = tags.oneway;
-  if (o === '-1' || o === 'reverse') return -1;
-  if (o === 'no' || o === 'false' || o === '0') return 0;
-  if (o === 'yes' || o === 'true' || o === '1') return 1;
-  if (tags.junction === 'roundabout' || tags.junction === 'circular') return 1;
-  if (tags.highway === 'motorway' || tags.highway === 'motorway_link') return 1;
-  return 0;
-}
-
-async function graphFromOverpass(elements, zoneIdx, signal) {
-  const coords = new Map();
-  for (const el of elements) {
-    if (el.type === 'node') coords.set(el.id, [el.lat, el.lon]);
-  }
-
-  const index = new Map();
-  const lat = [];
-  const lng = [];
-  const adj = [];
-  const adjAny = [];
-  const getIdx = (osmId) => {
-    let i = index.get(osmId);
-    if (i === undefined) {
-      const c = coords.get(osmId);
-      i = lat.length;
-      index.set(osmId, i);
-      lat.push(c[0]);
-      lng.push(c[1]);
-      adj.push([]);
-      adjAny.push([]);
-    }
-    return i;
-  };
-
-  let processed = 0;
-  for (const el of elements) {
-    if (el.type !== 'way' || !Array.isArray(el.nodes)) continue;
-    const tags = el.tags || {};
-    const speed = SPEEDS[tags.highway] || 25;
-    const dir = onewayDir(tags);
-
-    for (let i = 0; i < el.nodes.length - 1; i++) {
-      const a = coords.get(el.nodes[i]);
-      const b = coords.get(el.nodes[i + 1]);
-      if (!a || !b) continue;
-      const u = getIdx(el.nodes[i]);
-      const v = getIdx(el.nodes[i + 1]);
-      if (u === v) continue;
-      const d = distMeters(a[0], a[1], b[0], b[1]);
-      if (d < 0.5) continue;
-      const t = d / (speed / 3.6);
-      const [r0, r1] = pointRisks(zoneIdx, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
-      linkEdge(adj, adjAny, u, v, d, t, r0, r1, dir);
-    }
-
-    if (++processed % 1500 === 0) {
-      await sleep0();
-      if (signal.aborted) throw abortError();
-    }
-  }
-
-  return finalizeGraph(lat, lng, adj, adjAny, 'overpass');
-}
-
-// Fast fallback: synthetic 4-direction/8-neighbour lattice over the bbox.
-function buildGridGraph(b, zoneIdx) {
-  const latKm = (b.north - b.south) * 111.2;
-  const lngKm = (b.east - b.west) * 100.7;
-  const step = Math.max(0.12, Math.sqrt((latKm * lngKm) / 6000));
-  const rows = Math.max(2, Math.ceil(latKm / step) + 1);
-  const cols = Math.max(2, Math.ceil(lngKm / step) + 1);
-  const dLat = (b.north - b.south) / (rows - 1);
-  const dLng = (b.east - b.west) / (cols - 1);
-
-  const lat = [];
-  const lng = [];
-  const adj = [];
-  const adjAny = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      lat.push(b.south + r * dLat);
-      lng.push(b.west + c * dLng);
-      adj.push([]);
-      adjAny.push([]);
-    }
-  }
-  const id = (r, c) => r * cols + c;
-  const speed = 30 / 3.6;
-  const dirs = [
-    [0, 1],
-    [1, 0],
-    [1, 1],
-    [1, -1],
-  ];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      for (const [dr, dc] of dirs) {
-        const r2 = r + dr;
-        const c2 = c + dc;
-        if (r2 >= rows || c2 < 0 || c2 >= cols) continue;
-        const u = id(r, c);
-        const v = id(r2, c2);
-        const d = distMeters(lat[u], lng[u], lat[v], lng[v]);
-        const [r0, r1] = pointRisks(zoneIdx, (lat[u] + lat[v]) / 2, (lng[u] + lng[v]) / 2);
-        linkEdge(adj, adjAny, u, v, d, d / speed, r0, r1, 0);
-      }
-    }
-  }
-  return finalizeGraph(lat, lng, adj, adjAny, 'grid');
-}
-
-// ==========================================
-// OVERPASS FETCH (mirrors, timeouts, cache)
-// ==========================================
-function computeBBox(start, end) {
-  const spanLat = Math.abs(start.lat - end.lat);
-  const spanLng = Math.abs(start.lng - end.lng);
-  const pad = Math.min(0.06, Math.max(0.02, 0.25 * Math.max(spanLat, spanLng)));
-  const r = (v, fn) => fn(v / 0.01) * 0.01;
-  const south = r(Math.min(start.lat, end.lat) - pad, Math.floor);
-  const north = r(Math.max(start.lat, end.lat) + pad, Math.ceil);
-  const west = r(Math.min(start.lng, end.lng) - pad, Math.floor);
-  const east = r(Math.max(start.lng, end.lng) + pad, Math.ceil);
-  const diagKm = distMeters(south, west, north, east) / 1000;
-  return { south, north, west, east, major: diagKm > 14 };
-}
-
-function buildOverpassQuery(b) {
-  const major = 'motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link';
-  const classes = b.major ? major : `${major}|unclassified|residential`;
-  const f = (n) => n.toFixed(4);
-  return `[out:json][timeout:25];way["highway"~"^(${classes})$"]["access"!~"^(private|no)$"]["area"!="yes"](${f(b.south)},${f(b.west)},${f(b.north)},${f(b.east)});(._;>;);out body qt;`;
-}
-
-async function getOverpassGraph(b, zoneIdx, zonesLen, signal, setStatus, cache) {
-  const key = `${b.south.toFixed(2)},${b.west.toFixed(2)},${b.north.toFixed(2)},${b.east.toFixed(2)},${b.major},${zonesLen}`;
-  if (cache.has(key)) return cache.get(key);
-
-  const body = 'data=' + encodeURIComponent(buildOverpassQuery(b));
-  let lastErr = null;
-
-  for (let i = 0; i < OVERPASS_MIRRORS.length; i++) {
-    if (signal.aborted) throw abortError();
-    setStatus(`Downloading road network… (server ${i + 1}/${OVERPASS_MIRRORS.length})`);
+  function draw() {
+    if (!map) return;
     try {
-      const data = await fetchJson(
-        OVERPASS_MIRRORS[i],
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body,
-        },
-        18000,
-        signal
-      );
-      if (!data || !Array.isArray(data.elements) || data.elements.length < 10) {
-        throw new Error('Empty Overpass response');
+      const size = map.getSize();
+      const W = Math.round(size.x);
+      const H = Math.round(size.y);
+      if (W < 2 || H < 2) return;
+
+      const w = Math.ceil(W * SCALE);
+      const h = Math.ceil(H * SCALE);
+
+      L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
+      canvas.width = w;
+      canvas.height = h;
+      canvas.style.width = W + 'px';
+      canvas.style.height = H + 'px';
+
+      const lat = map.getCenter().lat;
+      const metersPerPx =
+        (40075016.686 * Math.cos((lat * Math.PI) / 180)) /
+        (256 * Math.pow(2, map.getZoom()));
+      const r = Math.max(opts.minRadiusPx, opts.radiusMeters / metersPerPx) * SCALE;
+      const r2 = r * r;
+
+      const density = new Float32Array(w * h);
+
+      for (let n = 0; n < points.length; n++) {
+        const pt = points[n];
+        const p = map.latLngToContainerPoint([pt[0], pt[1]]);
+        const px = p.x * SCALE;
+        const py = p.y * SCALE;
+        if (px < -r || py < -r || px > w + r || py > h + r) continue;
+
+        const val = Math.pow(Math.min(1, Math.max(0, pt[2])), opts.power);
+        const x0 = Math.max(0, Math.floor(px - r));
+        const x1 = Math.min(w - 1, Math.ceil(px + r));
+        const y0 = Math.max(0, Math.floor(py - r));
+        const y1 = Math.min(h - 1, Math.ceil(py + r));
+
+        for (let y = y0; y <= y1; y++) {
+          const dy = y - py;
+          const row = y * w;
+          for (let x = x0; x <= x1; x++) {
+            const dx = x - px;
+            const d2 = (dx * dx + dy * dy) / r2;
+            if (d2 >= 1) continue;
+            density[row + x] += val * Math.exp(-4.0 * d2);
+          }
+        }
       }
-      if (data.remark && /runtime error|timed out/i.test(data.remark)) {
-        throw new Error('Overpass runtime error');
+
+      const ctx = canvas.getContext('2d');
+      const img = ctx.createImageData(w, h);
+      const d = img.data;
+      const sat = opts.saturation;
+
+      for (let i = 0, j = 0; i < density.length; i++, j += 4) {
+        const dens = density[i];
+        if (dens <= 0.001) continue;
+        const t = Math.min(1, dens / sat);
+        const a = smoothstep(0.01, 0.16, t) * opts.opacity;
+        if (a <= 0) continue;
+        const k = Math.min(255, Math.floor(t * 255)) * 4;
+        d[j] = palette[k];
+        d[j + 1] = palette[k + 1];
+        d[j + 2] = palette[k + 2];
+        d[j + 3] = a * 255;
       }
-      setStatus('Scoring roads against crime hotspots…');
-      const g = await graphFromOverpass(data.elements, zoneIdx, signal);
-      if (g.n < 2) throw new Error('Road graph too small');
-      cache.set(key, g);
-      if (cache.size > 4) cache.delete(cache.keys().next().value);
-      return g;
+      ctx.putImageData(img, 0, 0);
+      canvas.style.visibility = 'visible';
     } catch (err) {
-      if (signal.aborted) throw abortError();
-      lastErr = err;
-    }
-  }
-  throw lastErr || new Error('Overpass unavailable');
-}
-
-// ==========================================
-// SNAPPING (connected-component aware)
-// ==========================================
-function snapEndpoints(g, start, end) {
-  let largest = 0;
-  for (const s of g.sizes) if (s > largest) largest = s;
-  const minSize = Math.max(10, largest * 0.02);
-
-  const nComp = g.sizes.length;
-  const sBest = new Float64Array(nComp).fill(Infinity);
-  const eBest = new Float64Array(nComp).fill(Infinity);
-  const sId = new Int32Array(nComp).fill(-1);
-  const eId = new Int32Array(nComp).fill(-1);
-
-  const kxS = 111320 * Math.cos((start.lat * Math.PI) / 180);
-  const kxE = 111320 * Math.cos((end.lat * Math.PI) / 180);
-
-  for (let i = 0; i < g.n; i++) {
-    const c = g.comp[i];
-    if (g.sizes[c] < minSize) continue;
-    const dsy = (g.lat[i] - start.lat) * 111320;
-    const dsx = (g.lng[i] - start.lng) * kxS;
-    const ds = dsx * dsx + dsy * dsy;
-    if (ds < sBest[c]) {
-      sBest[c] = ds;
-      sId[c] = i;
-    }
-    const dey = (g.lat[i] - end.lat) * 111320;
-    const dex = (g.lng[i] - end.lng) * kxE;
-    const de = dex * dex + dey * dey;
-    if (de < eBest[c]) {
-      eBest[c] = de;
-      eId[c] = i;
+      console.error('[Heatmap] draw error:', err);
     }
   }
 
-  // Pick the component where both endpoints snap closest (guarantees reachability).
-  let bestC = -1;
-  let bestSum = Infinity;
-  for (let c = 0; c < nComp; c++) {
-    if (sId[c] === -1 || eId[c] === -1) continue;
-    const sum = Math.sqrt(sBest[c]) + Math.sqrt(eBest[c]);
-    if (sum < bestSum) {
-      bestSum = sum;
-      bestC = c;
-    }
-  }
-  if (bestC === -1) return null;
-
-  const sMeters = Math.sqrt(sBest[bestC]);
-  const eMeters = Math.sqrt(eBest[bestC]);
-  if (sMeters > MAX_SNAP_METERS || eMeters > MAX_SNAP_METERS) return null;
-
-  return { s: sId[bestC], e: eId[bestC], sMeters, eMeters };
-}
-
-// ==========================================
-// WEIGHTED DIJKSTRA
-// cost = travelTime * (1 + alpha * (risk/100)^2 * timeMultiplier)
-// ==========================================
-// cost = distance * (1 + alpha * mult * riskNorm^2)
-// alpha = 0 gives the pure shortest path; a huge alpha gives the least-risky path.
-function dijkstra(g, list, s, t, alpha, ti, mult) {
-  const dist = new Float64Array(g.n).fill(Infinity);
-  const prev = new Int32Array(g.n).fill(-1);
-  const prevE = new Array(g.n);
-  const pq = new MinHeap();
-  dist[s] = 0;
-  pq.push({ id: s, cost: 0 });
-  const a = alpha * mult;
-
-  while (pq.size > 0) {
-    const { id: u, cost } = pq.pop();
-    if (cost > dist[u]) continue;
-    if (u === t) break;
-    const edges = list[u];
-    for (let i = 0; i < edges.length; i++) {
-      const e = edges[i];
-      const raw = ti ? e.r1 : e.r0;
-      const rn = raw > RISK_FLOOR ? (raw - RISK_FLOOR) / (100 - RISK_FLOOR) : 0;
-      const alt = cost + e.d * (1 + a * rn * rn);
-      if (alt < dist[e.to]) {
-        dist[e.to] = alt;
-        prev[e.to] = u;
-        prevE[e.to] = e;
-        pq.push({ id: e.to, cost: alt });
-      }
-    }
-  }
-
-  if (dist[t] === Infinity) return null;
-
-  const nodes = [];
-  const edges = [];
-  let cur = t;
-  while (cur !== -1) {
-    nodes.push(cur);
-    if (prevE[cur] && cur !== s) edges.push(prevE[cur]);
-    cur = prev[cur];
-  }
-  nodes.reverse();
-  edges.reverse();
-  return { nodes, edges };
-}
-
-// ==========================================
-// ROUTE POST-PROCESSING
-// ==========================================
-function findWarnings(coords, dangerZones, warnKm) {
-  if (coords.length < 2) return [];
-  let minLat = Infinity;
-  let maxLat = -Infinity;
-  let minLng = Infinity;
-  let maxLng = -Infinity;
-  for (const [la, ln] of coords) {
-    if (la < minLat) minLat = la;
-    if (la > maxLat) maxLat = la;
-    if (ln < minLng) minLng = ln;
-    if (ln > maxLng) maxLng = ln;
-  }
-  const margin = warnKm / 90 + 0.001;
-  const line = turf.lineString(coords.map(([la, ln]) => [ln, la]));
-  const out = [];
-  for (const z of dangerZones) {
-    if (z.lat < minLat - margin || z.lat > maxLat + margin) continue;
-    if (z.lng < minLng - margin || z.lng > maxLng + margin) continue;
-    const dkm = turf.pointToLineDistance(turf.point([z.lng, z.lat]), line, { units: 'kilometers' });
-    if (dkm <= warnKm) out.push({ ...z, distKm: dkm });
-  }
-  out.sort((a, b) => b.score - a.score);
-  return out;
-}
-
-function buildRoute(g, prof, path, snap, start, end, ti, dangerZones, warnKm) {
-  let edgeMeters = 0;
-  let secs = 0;
-  let riskSum = 0;
-  let maxRisk = 0;
-  for (const e of path.edges) {
-    const r = ti ? e.r1 : e.r0;
-    edgeMeters += e.d;
-    secs += e.t;
-    riskSum += r * e.d;
-    if (r > maxRisk) maxRisk = r;
-  }
-  const coords = path.nodes.map((i) => [g.lat[i], g.lng[i]]);
-  if (snap.sMeters > 25) coords.unshift([start.lat, start.lng]);
-  if (snap.eMeters > 25) coords.push([end.lat, end.lng]);
-  const totalMeters = edgeMeters + snap.sMeters + snap.eMeters;
+  const hide = () => {
+    canvas.style.visibility = 'hidden';
+  };
 
   return {
-    key: prof.key,
-    title: prof.title,
-    subtitle: prof.subtitle,
-    color: prof.color,
-    coords,
-    distance: (totalMeters / 1000).toFixed(1),
-    time: Math.max(1, Math.round((secs * 1.2) / 60)), // +20% for junctions / traffic
-    exposure: edgeMeters > 0 ? Math.round(riskSum / edgeMeters) : 0,
-    maxRisk: Math.round(maxRisk),
-    warnings: findWarnings(coords, dangerZones, warnKm),
-    sig: hashNodes(path.nodes),
+    addTo(m) {
+      map = m;
+      if (!map.getPane('heatPane')) {
+        const pane = map.createPane('heatPane');
+        pane.style.zIndex = 350;
+        pane.style.pointerEvents = 'none';
+      }
+      map.getPane('heatPane').appendChild(canvas);
+      map.on('zoomstart movestart', hide);
+      map.on('moveend zoomend resize', draw);
+      draw();
+    },
+    remove() {
+      if (!map) return;
+      map.off('zoomstart movestart', hide);
+      map.off('moveend zoomend resize', draw);
+      if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+      map = null;
+    },
   };
 }
 
-function pathStats(path, ti) {
-  let riskSum = 0;
-  let meters = 0;
-  for (const e of path.edges) {
-    riskSum += (ti ? e.r1 : e.r0) * e.d;
-    meters += e.d;
-  }
-  return { exp: meters ? riskSum / meters : 0, dist: meters };
-}
-
-async function solveOn(g, ctx) {
-  const { start, end, night, signal, dangerZones } = ctx;
-  const snap = snapEndpoints(g, start, end);
-  if (!snap) return null;
-
-  const ti = night ? 1 : 0;
-  const mult = night ? NIGHT_MULT : 1;
-  const warnKm = night ? WARN_KM_NIGHT : WARN_KM_DAY;
-  let relaxedOneway = false;
-
-  const run = async (alpha) => {
-    await sleep0();
-    if (signal.aborted) throw abortError();
-    let path = dijkstra(g, g.adj, snap.s, snap.e, alpha, ti, mult);
-    if (!path) {
-      path = dijkstra(g, g.adjAny, snap.s, snap.e, alpha, ti, mult);
-      if (path) relaxedOneway = true;
-    }
-    if (!path) return null;
-    return { path, sig: hashNodes(path.nodes), ...pathStats(path, ti) };
-  };
-
-  // 1) FASTEST: pure shortest distance, no crime penalty
-  const fast = await run(0);
-  if (!fast) return null;
-
-  // 2) SAFEST: crime exposure dominates; escalate until it differs from the fastest path
-  let safe = null;
-  for (const alpha of [250, 1000, 5000, 20000]) {
-    const cand = await run(alpha);
-    if (!cand) continue;
-    if (!safe || cand.exp < safe.exp) safe = cand;
-    if (cand.sig !== fast.sig && cand.exp < fast.exp) break;
-  }
-  if (!safe) safe = fast;
-
-  // 3) BALANCED: try several weights, pick the path closest to the midpoint
-  //    between fastest and safest in BOTH distance and risk exposure
-  let balanced = null;
-  const expSpan = fast.exp - safe.exp;
-  const distSpan = safe.dist - fast.dist;
-  let bestScore = Infinity;
-  for (const alpha of [1, 2, 4, 8, 16, 32, 64, 128]) {
-    const cand = await run(alpha);
-    if (!cand) continue;
-    let score;
-    if (expSpan > 0.5 && distSpan > 1) {
-      const pe = (fast.exp - cand.exp) / expSpan;
-      const pd = (cand.dist - fast.dist) / distSpan;
-      score = Math.abs(pe - 0.5) + Math.abs(pd - 0.5);
-    } else {
-      score = 10 + alpha; // fast and safe are the same, so nothing meaningful to pick
-    }
-    if (cand.sig === fast.sig || cand.sig === safe.sig) score += 5; // prefer a genuinely different path
-    if (score < bestScore) {
-      bestScore = score;
-      balanced = cand;
-    }
-  }
-  if (!balanced) balanced = fast;
-
-  const byKey = { safe, balanced, fast };
-  const routes = PROFILES.map((prof) =>
-    buildRoute(g, prof, byKey[prof.key].path, snap, start, end, ti, dangerZones, warnKm)
-  );
-
-  const fastest = routes.find((r) => r.key === 'fast') || routes[0];
-  routes.forEach((r, i) => {
-    const twin = routes.slice(0, i).find((o) => o.sig === r.sig);
-    r.sameAs = twin ? twin.title.split(' (')[0] : null;
-    r.extraMin = r.time - fastest.time;
-  });
-
-  const allSame = routes.every((r) => r.sig === routes[0].sig);
-  return { routes, snap, relaxedOneway, allSame };
-}
-
-async function planRoutes(ctx) {
-  const { start, end, zonesLen, zoneIdx, signal, setStatus, cache } = ctx;
-  const bbox = computeBBox(start, end);
-  const notes = [];
-  let graph = null;
-  let result = null;
-
-  try {
-    graph = await getOverpassGraph(bbox, zoneIdx, zonesLen, signal, setStatus, cache);
-    setStatus('Running 3 weighted Dijkstra searches…');
-    result = await solveOn(graph, ctx);
-    if (!result) {
-      notes.push('The downloaded road network could not connect your two points, so an approximate grid was used.');
-    }
-  } catch (err) {
-    if (signal.aborted || err?.name === 'AbortError' && signal.aborted) throw abortError();
-    notes.push('OpenStreetMap road servers were slow or unavailable, so an approximate grid network was used.');
-  }
-
-  if (!result) {
-    setStatus('Building fallback routing grid…');
-    await sleep0();
-    graph = buildGridGraph(bbox, zoneIdx);
-    result = await solveOn(graph, ctx);
-  }
-  if (!result) throw new Error('No route could be found between these two points.');
-
-  if (result.relaxedOneway) {
-    notes.push('Some one-way restrictions were relaxed to connect your points.');
-  }
-  const worstSnap = Math.max(result.snap.sMeters, result.snap.eMeters);
-  if (worstSnap > 800) {
-    notes.push(`A pin is ${(worstSnap / 1000).toFixed(1)} km from the nearest mapped road.`);
-  }
-
-  return { routes: result.routes, notice: notes.join(' '), source: graph.source };
-}
-
-// ==========================================
-// MAP HELPERS
-// ==========================================
-function FitRouteBounds({ routes, sig }) {
+function TrueThermalLayer({ zones }) {
   const map = useMap();
-  const last = useRef(null);
-  useEffect(() => {
-    if (!sig) {
-      last.current = null;
-      return;
-    }
-    if (!routes.length || last.current === sig) return;
-    last.current = sig;
-    const pts = [];
-    routes.forEach((r) => r.coords.forEach((c) => pts.push(c)));
-    if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 15 });
-  }, [routes, sig, map]);
-  return null;
-}
 
-function MapResizer() {
-  const map = useMap();
+  const points = useMemo(() => {
+    if (!Array.isArray(zones)) return [];
+    return zones
+      .map((z) => [parseFloat(z.lat), parseFloat(z.lng), parseFloat(z.avgScore) / 100])
+      .filter(([la, ln, v]) => Number.isFinite(la) && Number.isFinite(ln) && Number.isFinite(v));
+  }, [zones]);
+
   useEffect(() => {
+    const el = map.getContainer();
     const ro = new ResizeObserver(() => map.invalidateSize());
-    ro.observe(map.getContainer());
+    ro.observe(el);
     return () => ro.disconnect();
   }, [map]);
-  return null;
-}
 
-function MapPinDropper({ start, end, setStart, setEnd, setStartText, setEndText, resetRoute }) {
-  useMapEvents({
-    click(e) {
-      const p = { lat: e.latlng.lat, lng: e.latlng.lng };
-      if (!start) {
-        setStart(p);
-        setStartText(fmtCoord(p));
-      } else if (!end) {
-        setEnd(p);
-        setEndText(fmtCoord(p));
-      } else {
-        resetRoute();
-        setStart(p);
-        setStartText(fmtCoord(p));
-      }
-    },
-  });
-  return null;
-}
-
-function ActiveRoute({ route, dark }) {
-  const casingRef = useRef(null);
-  const lineRef = useRef(null);
   useEffect(() => {
-    casingRef.current?.bringToFront?.();
-    lineRef.current?.bringToFront?.();
-  }, [route]);
+    const layer = createHeatLayer(points, {
+      radiusMeters: 2800,
+      minRadiusPx: 30,
+      power: 2.2,
+      saturation: 1.5,
+      opacity: 0.8,
+    });
+    layer.addTo(map);
+    return () => layer.remove();
+  }, [map, points]);
+
+  return null;
+}
+
+// ==========================================
+// SMART LABELS (collision-free)
+// ==========================================
+const esc = (s) =>
+  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const riskColor = (risk) =>
+  risk === 'High' ? '#ef4444' : risk === 'Low' ? '#22c55e' : '#f59e0b';
+
+const hit = (a, b, pad = 3) =>
+  a[0] < b[2] + pad && a[2] + pad > b[0] && a[1] < b[3] + pad && a[3] + pad > b[1];
+
+function LabelLayer({ zones }) {
+  const map = useMap();
+  const [tick, setTick] = useState(0);
+  const bump = () => setTick((t) => t + 1);
+  useMapEvents({ moveend: bump, zoomend: bump, resize: bump });
+
+  const labels = useMemo(() => {
+    const size = map.getSize();
+    const zoom = map.getZoom();
+    const cap = zoom <= 10 ? 8 : zoom === 11 ? 18 : zoom === 12 ? 36 : zoom === 13 ? 70 : 999;
+
+    const pts = [];
+    for (const z of zones) {
+      const lat = parseFloat(z.lat);
+      const lng = parseFloat(z.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      const p = map.latLngToContainerPoint([lat, lng]);
+      if (p.x < 6 || p.y < 6 || p.x > size.x - 6 || p.y > size.y - 6) continue;
+      pts.push({ z, x: p.x, y: p.y });
+    }
+
+    // Obstacles: city overview panel + every dot
+    const boxes = [[0, 0, 260, 120]];
+    pts.forEach((p) => boxes.push([p.x - 5, p.y - 5, p.x + 5, p.y + 5]));
+
+    const out = [];
+    for (const p of pts) {
+      if (out.length >= cap) break;
+      const name = p.z.name.length > 22 ? p.z.name.slice(0, 21) + '…' : p.z.name;
+      const w = name.length * 6 + 40;
+      const h = 20;
+      const cands = [
+        ['r', [p.x + 9, p.y - h / 2, p.x + 9 + w, p.y + h / 2]],
+        ['l', [p.x - 9 - w, p.y - h / 2, p.x - 9, p.y + h / 2]],
+        ['t', [p.x - w / 2, p.y - 8 - h, p.x + w / 2, p.y - 8]],
+        ['b', [p.x - w / 2, p.y + 8, p.x + w / 2, p.y + 8 + h]],
+      ];
+      for (const [dir, box] of cands) {
+        const inView = box[0] >= 0 && box[2] <= size.x && box[1] >= 0 && box[3] <= size.y;
+        if (!inView) continue;
+        if (boxes.some((b) => hit(box, b))) continue;
+        boxes.push(box);
+        out.push({ z: p.z, name, dir });
+        break;
+      }
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zones, tick, map]);
+
   return (
     <>
-      <Polyline
-        ref={casingRef}
-        positions={route.coords}
-        pathOptions={{
-          color: dark ? '#0b1220' : '#ffffff',
-          weight: 13,
-          opacity: 0.9,
-          interactive: false,
-          lineCap: 'round',
-          lineJoin: 'round',
-        }}
-      />
-      <Polyline
-        ref={lineRef}
-        positions={route.coords}
-        pathOptions={{
-          color: route.color,
-          weight: 7,
-          opacity: 1,
-          lineCap: 'round',
-          lineJoin: 'round',
-          bubblingMouseEvents: false,
-        }}
-      >
-        <Tooltip sticky>
-          {route.title} • {route.distance} km • {route.time} min
-        </Tooltip>
-      </Polyline>
+      {labels.map(({ z, name, dir }) => (
+        <Marker
+          key={`lbl-${z.id ?? z.name}-${z.rank}-${dir}`}
+          position={[parseFloat(z.lat), parseFloat(z.lng)]}
+          interactive={false}
+          keyboard={false}
+          icon={L.divIcon({
+            className: 'cg-lbl-wrap',
+            iconSize: [0, 0],
+            html: `<div class="cg-lbl cg-${dir}"><span class="cg-rank" style="background:${riskColor(
+              z.risk
+            )}">${z.rank}</span><span class="cg-name">${esc(name)}</span></div>`,
+          })}
+        />
+      ))}
     </>
   );
 }
 
 // ==========================================
-// LOCATION RESOLUTION
+// PAGE
 // ==========================================
-const COORD_RE = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/;
-
-// ==========================================
-// MAIN PAGE
-// ==========================================
-export default function SafeRoutes() {
+export default function Heatmap() {
   const [zones, setZones] = useState([]);
-  const [zonesStatus, setZonesStatus] = useState('loading'); // loading | ready | error
-  const [start, setStart] = useState(null);
-  const [end, setEnd] = useState(null);
-  const [startText, setStartText] = useState('');
-  const [endText, setEndText] = useState('');
-  const [computing, setComputing] = useState(false);
-  const [resolving, setResolving] = useState(false);
-  const [status, setStatus] = useState('');
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [source, setSource] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [selectedRisk, setSelectedRisk] = useState('All');
+  const [selectedType, setSelectedType] = useState('All');
 
-  const [mapTheme, setMapTheme] = useState('light');
-  const [timeOfDay, setTimeOfDay] = useState('Day');
-  const [selectedProfile, setSelectedProfile] = useState('safe');
-  const [computedRoutes, setComputedRoutes] = useState([]);
-
-  const graphCache = useRef(new Map());
-  const night = timeOfDay === 'Night';
-  const dark = mapTheme === 'dark';
-
-  // ---- Load crime zones ----
   useEffect(() => {
-    const ctrl = new AbortController();
-    (async () => {
+    const fetchHeatmapData = async () => {
       try {
-        const data = await fetchJson(API_URL, {}, 15000, ctrl.signal);
-        if (data.success && Array.isArray(data.zones)) {
-          setZones(data.zones);
-          setZonesStatus('ready');
-        } else {
-          throw new Error('Bad payload');
-        }
+        const res = await fetch('http://localhost:5000/api/heatmap');
+        const data = await res.json();
+        if (data.success) setZones(data.zones);
       } catch (err) {
-        if (ctrl.signal.aborted) return;
-        console.error('Error loading AI zones:', err);
-        setZonesStatus('error');
+        console.error('Error loading live heatmap:', err);
+      } finally {
+        setLoading(false);
       }
-    })();
-    return () => ctrl.abort();
+    };
+    fetchHeatmapData();
   }, []);
 
-  const zonesNorm = useMemo(
+  const crimeCategories = ['All', ...new Set(zones.map((z) => z.type))];
+
+  const filteredZones = useMemo(
     () =>
-      zones
-        .map((z) => ({
-          ...z,
-          lat: parseFloat(z.lat),
-          lng: parseFloat(z.lng),
-          score: parseFloat(z.avgScore),
-        }))
-        .filter((z) => Number.isFinite(z.lat) && Number.isFinite(z.lng) && Number.isFinite(z.score)),
-    [zones]
+      zones.filter((zone) => {
+        const matchesRisk = selectedRisk === 'All' || zone.risk === selectedRisk;
+        const matchesType = selectedType === 'All' || zone.type === selectedType;
+        return matchesRisk && matchesType;
+      }),
+    [zones, selectedRisk, selectedType]
   );
 
-  const zoneIdx = useMemo(() => buildZoneIndex(zonesNorm), [zonesNorm]);
-  const dangerZones = useMemo(() => zonesNorm.filter((z) => z.score >= DANGER_THRESHOLD), [zonesNorm]);
+  // #1 = most dangerous
+  const ranked = useMemo(
+    () =>
+      [...filteredZones]
+        .sort((a, b) => parseFloat(b.avgScore) - parseFloat(a.avgScore))
+        .map((z, i) => ({ ...z, rank: i + 1 })),
+    [filteredZones]
+  );
 
-  const locationOptions = useMemo(() => {
-    const seen = new Map();
-    for (const z of zonesNorm) {
-      const label = `${z.name} (${z.town})`;
-      if (!seen.has(label)) seen.set(label, { label, name: z.name, lat: z.lat, lng: z.lng });
-    }
-    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label));
-  }, [zonesNorm]);
-
-  // ---- Resolve typed text to coordinates ----
-  const resolveLocation = async (query, fieldName) => {
-    const raw = query.trim();
-    const m = raw.match(COORD_RE);
-    if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
-
-    const clean = raw.toLowerCase();
-    const exactLabel = locationOptions.find((o) => o.label.toLowerCase() === clean);
-    if (exactLabel) return { lat: exactLabel.lat, lng: exactLabel.lng };
-
-    const exactName = locationOptions.filter((o) => o.name.toLowerCase() === clean);
-    if (exactName.length === 1) return { lat: exactName[0].lat, lng: exactName[0].lng };
-    if (exactName.length > 1) {
-      throw new Error(`"${raw}" exists in several towns. Pick the ${fieldName} from the dropdown list.`);
-    }
-
-    if (clean.length >= 3) {
-      const partial = locationOptions.filter((o) => o.label.toLowerCase().includes(clean));
-      if (partial.length === 1) return { lat: partial[0].lat, lng: partial[0].lng };
-      if (partial.length > 1) {
-        throw new Error(`Several areas match "${raw}". Pick the ${fieldName} from the dropdown list.`);
-      }
-    }
-
-    try {
-      const data = await fetchJson(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=pk&viewbox=66.6,25.5,67.6,24.6&bounded=1&q=${encodeURIComponent(
-          raw + ', Karachi'
-        )}`,
-        {},
-        8000
-      );
-      if (data[0]) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-    } catch (err) {
-      console.error('Nominatim error:', err);
-    }
-    throw new Error(`Could not find the ${fieldName} "${raw}". Pick an area from the dropdown or click the map.`);
-  };
-
-  // ---- Run 3 weighted Dijkstra searches whenever inputs change ----
-  useEffect(() => {
-    if (!start || !end || zonesStatus === 'loading') return;
-
-    if (distMeters(start.lat, start.lng, end.lat, end.lng) < 100) {
-      setComputedRoutes([]);
-      setError('Start and destination are too close together to plan a route.');
-      return;
-    }
-
-    const ctrl = new AbortController();
-    setComputing(true);
-    setError('');
-    setStatus('Preparing…');
-
-    (async () => {
-      try {
-        const out = await planRoutes({
-          start,
-          end,
-          night,
-          zoneIdx,
-          zonesLen: zonesNorm.length,
-          dangerZones,
-          signal: ctrl.signal,
-          setStatus: (s) => !ctrl.signal.aborted && setStatus(s),
-          cache: graphCache.current,
-        });
-        if (ctrl.signal.aborted) return;
-        setComputedRoutes(out.routes);
-        setNotice(out.notice);
-        setSource(out.source);
-      } catch (err) {
-        if (ctrl.signal.aborted) return;
-        console.error('Routing error:', err);
-        setComputedRoutes([]);
-        setError(err.message || 'Routing failed. Please try again.');
-      } finally {
-        if (!ctrl.signal.aborted) setComputing(false);
-      }
-    })();
-
-    return () => ctrl.abort();
-  }, [start, end, night, zonesStatus, zoneIdx, zonesNorm.length, dangerZones]);
-
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    setError('');
-    if (!startText.trim() || !endText.trim()) {
-      setError('Enter both a departure and a destination.');
-      return;
-    }
-    setResolving(true);
-    try {
-      const a = await resolveLocation(startText, 'departure');
-      const b = await resolveLocation(endText, 'destination');
-      setStart(a);
-      setEnd(b);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setResolving(false);
-    }
-  };
-
-  const resetRoute = () => {
-    setStart(null);
-    setEnd(null);
-    setStartText('');
-    setEndText('');
-    setComputedRoutes([]);
-    setError('');
-    setNotice('');
-    setComputing(false);
-  };
-
-  const swapEnds = () => {
-    setStart(end);
-    setEnd(start);
-    setStartText(endText);
-    setEndText(startText);
-  };
-
-  const busy = computing || resolving;
-  const activeRoute = computedRoutes.find((r) => r.key === selectedProfile) || computedRoutes[0];
-  const fitSig = start && end ? `${fmtCoord(start)}|${fmtCoord(end)}` : null;
-  const dangerRadiusM = (night ? WARN_KM_NIGHT : WARN_KM_DAY) * 1000;
-
-  const exposureLabel = (v) =>
-    v < 25 ? { t: 'Low', c: 'text-green-400' } : v < 50 ? { t: 'Moderate', c: 'text-amber-400' } : { t: 'High', c: 'text-red-400' };
+  const counts = useMemo(
+    () => ({
+      high: zones.filter((z) => z.risk === 'High').length,
+      medium: zones.filter((z) => z.risk === 'Moderate' || z.risk === 'Medium').length,
+      low: zones.filter((z) => z.risk === 'Low').length,
+    }),
+    [zones]
+  );
 
   return (
     <div className="min-h-screen lg:h-screen lg:overflow-hidden bg-[#0F172A] text-[#F1F5F9] flex flex-col font-sans">
       <style>{`
-        .cg-map .leaflet-container { background: transparent; }
-        .cg-pin { background: none; border: none; }
+        .leaflet-container { background: #1b1f27; }
+        .cg-tiles { filter: invert(1) hue-rotate(180deg) brightness(.82) contrast(.92) saturate(.45); }
+
+        .cg-lbl-wrap { background: none; border: none; }
+        .cg-lbl {
+          position: absolute; display: flex; align-items: center; gap: 5px;
+          white-space: nowrap; pointer-events: none;
+          background: rgba(15,23,42,.88); border: 1px solid rgba(255,255,255,.16);
+          border-radius: 999px; padding: 2px 8px 2px 3px; height: 20px;
+          box-shadow: 0 2px 6px rgba(0,0,0,.45);
+          font: 600 11px/1 ui-sans-serif, system-ui, sans-serif; color: #f1f5f9;
+        }
+        .cg-lbl.cg-r { left: 9px; top: -10px; }
+        .cg-lbl.cg-l { right: 9px; top: -10px; }
+        .cg-lbl.cg-t { left: 0; top: -8px; transform: translate(-50%, -100%); }
+        .cg-lbl.cg-b { left: 0; top: 8px; transform: translateX(-50%); }
+        .cg-rank {
+          min-width: 14px; height: 14px; padding: 0 3px; border-radius: 999px;
+          display: inline-flex; align-items: center; justify-content: center;
+          font-size: 9px; font-weight: 800; color: #fff;
+        }
+
+        .cg-tip.leaflet-tooltip {
+          background: #0F172A; border: 1px solid rgba(255,255,255,.15);
+          border-radius: 12px; padding: 10px 12px; color: #e2e8f0;
+          box-shadow: 0 8px 24px rgba(0,0,0,.5);
+        }
+        .cg-tip.leaflet-tooltip:before { display: none; }
       `}</style>
+
       <Navbar />
 
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row relative overflow-hidden">
-        {/* ============ Left Sidebar ============ */}
-        <div className="w-full lg:w-[450px] bg-[#1E293B] border-r border-white/10 p-5 sm:p-6 flex flex-col gap-5 z-10 overflow-y-auto">
+        {/* Left Sidebar */}
+        <div className="w-full lg:w-96 bg-[#1E293B] border-r border-white/10 p-6 flex flex-col gap-6 z-10 overflow-y-auto">
           <div>
-            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#0F172A] border border-white/10 text-[#3b82f6] text-xs font-bold tracking-widest uppercase mb-3">
-              <Navigation size={14} /> Weighted Dijkstra Engine
+            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#0F172A] border border-white/10 text-[#F97316] text-xs font-bold tracking-widest uppercase mb-3">
+              <Layers size={14} /> Spatial Mapping
             </span>
-            <h1 className="text-3xl font-black text-white tracking-tight">Safe Routes</h1>
+            <h1 className="text-3xl font-black text-white tracking-tight">Live Heatmap</h1>
             <p className="text-[#94A3B8] text-sm mt-1">
-              Compares 3 crime-weighted road paths simultaneously. Pick your risk tolerance.
+              Real-time crime density visualizer aggregated from 60,000 Karachi records.
             </p>
           </div>
 
-          {/* Search form */}
-          <form onSubmit={handleSearch} className="bg-[#0F172A] border border-white/10 rounded-2xl p-4 space-y-3">
-            <div className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider">Select Karachi Areas</div>
-
-            <datalist id="karachi-areas">
-              {locationOptions.map((opt) => (
-                <option key={opt.label} value={opt.label} />
+          <div className="space-y-3">
+            <label className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider flex items-center gap-2">
+              <Filter size={14} /> Filter by Risk Level
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {['All', 'High', 'Moderate', 'Low'].map((level) => (
+                <button
+                  key={level}
+                  onClick={() => setSelectedRisk(level)}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                    selectedRisk === level
+                      ? 'bg-[#F97316] text-white shadow-lg shadow-orange-500/20'
+                      : 'bg-[#0F172A] border border-white/10 text-[#94A3B8] hover:text-white'
+                  }`}
+                >
+                  {level}
+                </button>
               ))}
-            </datalist>
-
-            <div className="flex items-stretch gap-2">
-              <div className="flex-1 space-y-2">
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-green-500 text-white text-[10px] font-black flex items-center justify-center">
-                    A
-                  </span>
-                  <input
-                    type="text"
-                    list="karachi-areas"
-                    placeholder="Departure (e.g. Landhi...)"
-                    value={startText}
-                    onChange={(e) => setStartText(e.target.value)}
-                    className="w-full bg-[#1E293B] border border-white/10 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-green-500"
-                  />
-                </div>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-black flex items-center justify-center">
-                    B
-                  </span>
-                  <input
-                    type="text"
-                    list="karachi-areas"
-                    placeholder="Destination (e.g. DHA...)"
-                    value={endText}
-                    onChange={(e) => setEndText(e.target.value)}
-                    className="w-full bg-[#1E293B] border border-white/10 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={swapEnds}
-                disabled={!startText && !endText}
-                title="Swap start and destination"
-                className="px-2.5 bg-[#1E293B] hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-xl border border-white/10"
-              >
-                <ArrowUpDown size={16} />
-              </button>
-            </div>
-
-            <div className="flex gap-2 pt-1">
-              <button
-                type="submit"
-                disabled={busy}
-                className="flex-1 bg-[#3b82f6] hover:bg-blue-600 disabled:opacity-60 text-white py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all"
-              >
-                {busy ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-                {busy ? 'Working...' : 'Calculate 3 Routes'}
-              </button>
-              {(start || end || startText || endText) && (
-                <button
-                  type="button"
-                  onClick={resetRoute}
-                  className="px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-white/10"
-                  title="Clear Route"
-                >
-                  <RotateCcw size={15} />
-                </button>
-              )}
-            </div>
-            <p className="text-[11px] text-slate-500">
-              Tip: click the map to drop pin A, then pin B. Drag a pin to adjust it.
-            </p>
-          </form>
-
-          {/* Banners */}
-          {zonesStatus === 'error' && (
-            <div className="flex gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
-              <AlertTriangle size={15} className="shrink-0 mt-0.5" />
-              <span>
-                Could not load crime zones from the server. Routes will ignore crime data and autocomplete is unavailable.
-              </span>
-            </div>
-          )}
-          {error && (
-            <div className="flex gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs">
-              <AlertTriangle size={15} className="shrink-0 mt-0.5" />
-              <span>{error}</span>
-            </div>
-          )}
-          {computing && (
-            <div className="flex gap-2 items-center p-3 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-200 text-xs">
-              <Loader2 size={15} className="animate-spin shrink-0" />
-              <span>{status}</span>
-            </div>
-          )}
-          {!computing && notice && computedRoutes.length > 0 && (
-            <div className="flex gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs">
-              <Info size={15} className="shrink-0 mt-0.5" />
-              <span>{notice}</span>
-            </div>
-          )}
-
-          {/* Time + preference */}
-          <div className="bg-[#0F172A] border border-white/10 rounded-2xl p-4 space-y-4">
-            <div>
-              <div className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider mb-2">Travel Time Context</div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setTimeOfDay('Day')}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all ${
-                    timeOfDay === 'Day' ? 'bg-[#3b82f6] text-white' : 'bg-[#1E293B] text-[#94A3B8] border border-white/5'
-                  }`}
-                >
-                  <Clock size={14} /> Daytime
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTimeOfDay('Night')}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition-all ${
-                    timeOfDay === 'Night'
-                      ? 'bg-[#8b5cf6] text-white shadow-lg shadow-purple-500/20'
-                      : 'bg-[#1E293B] text-[#94A3B8] border border-white/5'
-                  }`}
-                >
-                  <Moon size={14} /> Night (1.5x Risk)
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <div className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider mb-2">Your Risk Preference</div>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { key: 'safe', label: 'Completely Safe', icon: Shield, color: 'bg-green-600' },
-                  { key: 'balanced', label: 'Medium Risk', icon: Scale, color: 'bg-blue-600' },
-                  { key: 'fast', label: 'Fastest / Risky', icon: Zap, color: 'bg-red-600' },
-                ].map((opt) => {
-                  const Icon = opt.icon;
-                  const active = selectedProfile === opt.key;
-                  return (
-                    <button
-                      key={opt.key}
-                      type="button"
-                      onClick={() => setSelectedProfile(opt.key)}
-                      className={`py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center gap-1 ${
-                        active
-                          ? `${opt.color} text-white shadow-lg`
-                          : 'bg-[#1E293B] text-[#94A3B8] border border-white/5 hover:text-white'
-                      }`}
-                    >
-                      <Icon size={14} />
-                      <span className="text-[11px] leading-tight text-center">{opt.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
             </div>
           </div>
 
-          {/* Route comparison cards */}
-          {computedRoutes.length > 0 && (
-            <div className="space-y-2.5">
-              <div className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider flex items-center gap-2">
-                <MapIcon size={14} /> All Calculated Paths (Click to Select)
-              </div>
-              {computedRoutes.map((route) => {
-                const isSelected = route.key === selectedProfile;
-                return (
-                  <div
-                    key={route.key}
-                    onClick={() => setSelectedProfile(route.key)}
-                    style={{ borderColor: isSelected ? route.color : 'rgba(255,255,255,0.06)' }}
-                    className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
-                      isSelected ? 'bg-[#0F172A] shadow-lg' : 'bg-[#1E293B]/70 hover:bg-[#1E293B]'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start gap-3 mb-1">
-                      <div className="font-bold text-sm text-white flex items-center gap-2">
-                        <span
-                          className="w-3 h-3 rounded-full inline-block shrink-0"
-                          style={{ backgroundColor: route.color }}
-                        />
-                        {route.title}
-                      </div>
-                      <div className="text-sm font-black text-white whitespace-nowrap">
-                        {route.time} <span className="text-[10px] text-slate-400 font-normal">min</span>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center text-xs pl-5 gap-3">
-                      <span className="text-slate-400">
-                        {route.distance} km •{' '}
-                        {route.sameAs ? `Same path as ${route.sameAs}` : route.subtitle}
-                      </span>
-                      <span
-                        className={`whitespace-nowrap ${
-                          route.warnings.length > 0 ? 'text-red-400 font-bold' : 'text-green-400 font-bold'
-                        }`}
-                      >
-                        {route.warnings.length} Hotspots
-                      </span>
-                    </div>
-                    {route.extraMin > 0 && (
-                      <div className="pl-5 mt-1 text-[11px] text-amber-300/90">+{route.extraMin} min vs fastest</div>
-                    )}
-                  </div>
-                );
-              })}
+          <div className="space-y-3">
+            <label className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider flex items-center gap-2">
+              <ShieldAlert size={14} /> Filter by Dominant Crime
+            </label>
+            <select
+              value={selectedType}
+              onChange={(e) => setSelectedType(e.target.value)}
+              className="w-full bg-[#0F172A] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#F97316]"
+            >
+              {crimeCategories.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat === 'All' ? 'All Categories' : cat}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="bg-[#0F172A] border border-white/10 rounded-2xl p-4 grid grid-cols-2 gap-3 text-center">
+            <div className="bg-[#1E293B] p-3 rounded-xl border border-white/5">
+              <div className="text-2xl font-black text-white">{loading ? '...' : filteredZones.length}</div>
+              <div className="text-[10px] text-[#64748B] uppercase font-bold">Districts Shown</div>
             </div>
-          )}
-
-          {/* Selected route analysis */}
-          {activeRoute && (
-            <div className="bg-[#0F172A] border border-white/10 rounded-2xl p-4 space-y-3 mt-auto">
-              <div className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider flex items-center gap-2">
-                <Info size={14} /> Selected Route Analysis
+            <div className="bg-[#1E293B] p-3 rounded-xl border border-white/5">
+              <div className="text-2xl font-black text-red-500">
+                {loading
+                  ? '...'
+                  : filteredZones.reduce((s, z) => s + (z.incidents || 0), 0).toLocaleString()}
               </div>
-
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="bg-[#1E293B] rounded-xl py-2 border border-white/5">
-                  <div className="text-lg font-black text-white">{activeRoute.distance}</div>
-                  <div className="text-[10px] text-slate-400 uppercase font-bold">km</div>
-                </div>
-                <div className="bg-[#1E293B] rounded-xl py-2 border border-white/5">
-                  <div className="text-lg font-black text-white">{activeRoute.time}</div>
-                  <div className="text-[10px] text-slate-400 uppercase font-bold">min</div>
-                </div>
-                <div className="bg-[#1E293B] rounded-xl py-2 border border-white/5">
-                  <div className={`text-lg font-black ${exposureLabel(activeRoute.exposure).c}`}>
-                    {activeRoute.exposure}
-                  </div>
-                  <div className="text-[10px] text-slate-400 uppercase font-bold">
-                    {exposureLabel(activeRoute.exposure).t} exposure
-                  </div>
-                </div>
-              </div>
-
-              {activeRoute.warnings.length > 0 ? (
-                <div className="p-3.5 bg-red-500/10 border border-red-500/30 rounded-xl">
-                  <div className="flex items-center gap-2 text-red-500 font-black text-sm mb-1.5">
-                    <ShieldAlert size={16} /> PASSES NEAR {activeRoute.warnings.length} HIGH-RISK ZONE
-                    {activeRoute.warnings.length > 1 ? 'S' : ''}
-                  </div>
-                  <ul className="space-y-1.5 max-h-[130px] overflow-y-auto pr-1">
-                    {activeRoute.warnings.map((r, i) => (
-                      <li key={`${r.id ?? r.name}-${i}`} className="bg-red-500/20 px-3 py-1.5 rounded-lg text-xs border border-red-500/20">
-                        <div className="font-bold text-red-400">
-                          {r.name}, {r.town}
-                        </div>
-                        <div className="text-red-300/80 text-[11px]">
-                          Primary Threat: {r.type} (Score: {r.avgScore}) • {r.distKm.toFixed(1)} km from route
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <div className="p-3.5 bg-green-500/10 border border-green-500/30 rounded-xl">
-                  <div className="flex items-center gap-2 text-green-500 font-black text-sm mb-1">
-                    <CheckCircle size={16} /> 100% HOTSPOT-FREE CORRIDOR
-                  </div>
-                  <p className="text-xs text-green-200/80">
-                    This path stays clear of all high-risk zones for {timeOfDay.toLowerCase()} travel.
-                  </p>
-                </div>
-              )}
-
-              <div className="text-[10px] text-slate-500">
-                Road data: {source === 'grid' ? 'approximate grid (fallback)' : '© OpenStreetMap contributors'} • times
-                include a 20% junction allowance.
-              </div>
+              <div className="text-[10px] text-[#64748B] uppercase font-bold">Total Records</div>
             </div>
-          )}
+          </div>
+
+          <div className="p-4 bg-[#0F172A] rounded-xl border border-white/10">
+            <div className="mb-2 text-xs font-bold text-[#94A3B8] uppercase tracking-wider">
+              Crime Density
+            </div>
+            <div
+              className="h-2.5 w-full rounded"
+              style={{
+                background:
+                  'linear-gradient(to right, #1a1aff, #00b4ff, #00f0d0, #3ddc4a, #f5f500, #ff8c00, #ff1a00)',
+              }}
+            />
+            <div className="mt-1.5 flex justify-between text-[10px] font-bold text-[#64748B] uppercase">
+              <span>Low</span>
+              <span>Medium</span>
+              <span>High</span>
+            </div>
+            <div className="mt-3 text-[10px] text-[#64748B] leading-relaxed">
+              Numbered badges rank districts by risk (1 = highest). More labels appear as you zoom in.
+            </div>
+          </div>
         </div>
 
-        {/* ============ Right Map ============ */}
-        <div
-          className="cg-map flex-1 h-[65vh] lg:h-auto min-h-[460px] relative"
-          style={{ background: dark ? '#1b1f27' : '#e5e7eb' }}
-        >
-          {/* Theme toggle */}
-          <div className="absolute top-4 right-4 z-[1000] flex bg-[#0F172A]/90 backdrop-blur border border-white/15 rounded-full p-1 shadow-xl">
-            <button
-              type="button"
-              onClick={() => setMapTheme('light')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all ${
-                mapTheme === 'light' ? 'bg-white text-slate-900 shadow' : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              <Sun size={13} /> Light
-            </button>
-            <button
-              type="button"
-              onClick={() => setMapTheme('dark')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all ${
-                mapTheme === 'dark' ? 'bg-[#3b82f6] text-white shadow' : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              <Moon size={13} /> Dark
-            </button>
+        {/* Map */}
+        <div className="flex-1 min-h-[500px] relative">
+          <div className="absolute top-4 left-4 z-[1000] rounded-2xl bg-[#0F172A]/90 border border-white/10 px-5 py-4 backdrop-blur pointer-events-none">
+            <div className="text-[10px] font-bold tracking-widest text-[#94A3B8] uppercase mb-2">
+              City Overview
+            </div>
+            <div className="flex gap-6 text-center">
+              <div>
+                <div className="text-2xl font-black text-red-500">{counts.high}</div>
+                <div className="text-[10px] text-[#94A3B8]">High</div>
+              </div>
+              <div>
+                <div className="text-2xl font-black text-orange-400">{counts.medium}</div>
+                <div className="text-[10px] text-[#94A3B8]">Medium</div>
+              </div>
+              <div>
+                <div className="text-2xl font-black text-green-500">{counts.low}</div>
+                <div className="text-[10px] text-[#94A3B8]">Low</div>
+              </div>
+            </div>
           </div>
 
-          {/* Status chips */}
-          {computing && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 rounded-full bg-[#0F172A]/90 border border-white/15 px-4 py-2 text-xs text-slate-200 shadow-xl pointer-events-none">
-              <Loader2 size={14} className="animate-spin" /> {status}
-            </div>
-          )}
-          {!start && !computing && (
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] rounded-full bg-[#0F172A]/90 border border-white/15 px-4 py-2 text-xs text-slate-200 shadow-xl pointer-events-none whitespace-nowrap">
-              Click the map to drop pin A, or pick areas on the left
-            </div>
-          )}
-          {start && !end && !computing && (
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] rounded-full bg-[#0F172A]/90 border border-white/15 px-4 py-2 text-xs text-slate-200 shadow-xl pointer-events-none whitespace-nowrap">
-              Now click the map to drop destination pin B
-            </div>
-          )}
-
-          <MapContainer center={KARACHI_CENTER} zoom={12} zoomControl={true} className="w-full h-full z-[1]">
-            {dark ? (
-              <>
-                <TileLayer
-                  key="dark-base"
-                  url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
-                  attribution="&copy; Esri"
-                  maxNativeZoom={16}
-                  maxZoom={19}
-                />
-                <TileLayer
-                  key="dark-labels"
-                  url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
-                  maxNativeZoom={16}
-                  maxZoom={19}
-                />
-              </>
-            ) : (
-              <TileLayer
-                key="light"
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution="&copy; OpenStreetMap contributors"
-                maxZoom={19}
-              />
-            )}
-
-            {/* Hotspots: true-radius circles that grow at night */}
-            <Pane name="danger-pane" style={{ zIndex: 390 }}>
-              {dangerZones.map((zone, i) => (
-                <Circle
-                  key={`danger-${zone.id ?? i}`}
-                  center={[zone.lat, zone.lng]}
-                  radius={dangerRadiusM}
-                  pathOptions={{
-                    color: '#ef4444',
-                    weight: 1,
-                    fillColor: '#ef4444',
-                    fillOpacity: night ? 0.24 : 0.15,
-                  }}
-                >
-                  <Tooltip sticky>
-                    {zone.name}, {zone.town} (Risk: {zone.avgScore})
-                  </Tooltip>
-                </Circle>
-              ))}
-            </Pane>
-
-            {/* Routes */}
-            <Pane name="route-pane" style={{ zIndex: 410 }}>
-              {computedRoutes
-                .filter((r) => r.key !== activeRoute?.key)
-                .map((route) => (
-                  <React.Fragment key={`bg-${route.key}-${route.sig}`}>
-                    {/* Wide invisible hit-line makes dashed routes easy to click */}
-                    <Polyline
-                      positions={route.coords}
-                      pathOptions={{ color: route.color, weight: 20, opacity: 0.01, bubblingMouseEvents: false }}
-                      eventHandlers={{ click: () => setSelectedProfile(route.key) }}
-                    />
-                    <Polyline
-                      positions={route.coords}
-                      pathOptions={{
-                        color: route.color,
-                        weight: 5,
-                        opacity: 0.55,
-                        dashArray: '8, 8',
-                        bubblingMouseEvents: false,
-                      }}
-                      eventHandlers={{ click: () => setSelectedProfile(route.key) }}
-                    >
-                      <Tooltip sticky>
-                        {route.title} • {route.distance} km • {route.time} min (click to select)
-                      </Tooltip>
-                    </Polyline>
-                  </React.Fragment>
-                ))}
-
-              {activeRoute && (
-                <ActiveRoute
-                  key={`fg-${activeRoute.key}-${activeRoute.sig}-${timeOfDay}-${mapTheme}`}
-                  route={activeRoute}
-                  dark={dark}
-                />
-              )}
-            </Pane>
-
-            {start && (
-              <Marker
-                position={[start.lat, start.lng]}
-                icon={startIcon}
-                draggable
-                eventHandlers={{
-                  dragend: (e) => {
-                    const p = e.target.getLatLng();
-                    const next = { lat: p.lat, lng: p.lng };
-                    setStart(next);
-                    setStartText(fmtCoord(next));
-                  },
-                }}
-              />
-            )}
-            {end && (
-              <Marker
-                position={[end.lat, end.lng]}
-                icon={endIcon}
-                draggable
-                eventHandlers={{
-                  dragend: (e) => {
-                    const p = e.target.getLatLng();
-                    const next = { lat: p.lat, lng: p.lng };
-                    setEnd(next);
-                    setEndText(fmtCoord(next));
-                  },
-                }}
-              />
-            )}
-
-            <MapPinDropper
-              start={start}
-              end={end}
-              setStart={setStart}
-              setEnd={setEnd}
-              setStartText={setStartText}
-              setEndText={setEndText}
-              resetRoute={resetRoute}
+          <MapContainer center={[24.89, 67.07]} zoom={11} zoomControl={true} className="w-full h-full z-[1]">
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              className="cg-tiles"
+              maxZoom={19}
             />
-            <FitRouteBounds routes={computedRoutes} sig={fitSig} />
-            <MapResizer />
+
+            <TrueThermalLayer zones={filteredZones} />
+
+            {/* Small dots with rich hover details */}
+            {ranked.map((zone, i) => (
+              <CircleMarker
+                key={`dot-${zone.id ?? i}`}
+                center={[parseFloat(zone.lat), parseFloat(zone.lng)]}
+                radius={3.5}
+                pathOptions={{
+                  color: '#0b1220',
+                  weight: 1.5,
+                  fillColor: '#ffffff',
+                  fillOpacity: 1,
+                }}
+              >
+                <Tooltip direction="top" offset={[0, -6]} opacity={1} className="cg-tip">
+                  <div className="font-sans min-w-[150px]">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-flex items-center justify-center rounded-full text-white text-[10px] font-extrabold px-1.5 h-4"
+                        style={{ background: riskColor(zone.risk) }}
+                      >
+                        #{zone.rank}
+                      </span>
+                      <span className="font-bold text-sm text-white">{zone.name}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">
+                      {zone.town}
+                    </div>
+                    <div className="text-xs text-slate-300 mt-1.5">
+                      Dominant crime: <b className="text-white">{zone.type}</b>
+                    </div>
+                    <div className="text-xs text-slate-300">
+                      Risk index: <b className="text-white">{zone.avgScore} / 100</b>
+                    </div>
+                  </div>
+                </Tooltip>
+              </CircleMarker>
+            ))}
+
+            <LabelLayer zones={ranked} />
           </MapContainer>
+
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] rounded-full bg-[#0F172A]/90 border border-white/10 px-5 py-2.5 text-xs text-slate-300 backdrop-blur pointer-events-none whitespace-nowrap">
+            Hover any dot to view district details
+          </div>
         </div>
       </div>
     </div>
