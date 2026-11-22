@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   MapContainer,
   TileLayer,
@@ -136,8 +137,6 @@ function pointRisks(idx, lat, lng) {
 
 // ==========================================
 // DIJKSTRA OVER MULTI-CORRIDOR REAL ROAD GRAPH
-// Fetches real street geometry from OSRM in <1s, merges corridors into a
-// topological road graph, and runs weighted Dijkstra for Safe / Balanced / Fast.
 // ==========================================
 class MinHeap {
   constructor() {
@@ -180,13 +179,11 @@ class MinHeap {
 }
 
 function runDijkstraOnCorridors(corridors, alpha, mult) {
-  // Build unified road graph by merging shared street intersections across corridors
   const nodeMap = new Map();
   const nodes = [];
   const adj = [];
 
   const getNodeId = (lat, lng) => {
-    // Snap coordinates within ~15m to merge shared road junctions
     const key = `${Math.round(lat * 7000)}:${Math.round(lng * 7000)}`;
     let id = nodeMap.get(key);
     if (id === undefined) {
@@ -301,7 +298,6 @@ async function computeFastStreetRoutes({ start, end, night, zoneIdx, dangerZones
     return data.code === 'Ok' && Array.isArray(data.routes) ? data.routes : [];
   };
 
-  // Generate 7 real street corridors (direct + alternatives + perpendicular detours around hotspots)
   const dx = (end.lng - start.lng) * 100.7;
   const dy = (end.lat - start.lat) * 111.2;
   const len = Math.hypot(dx, dy) || 1;
@@ -346,7 +342,6 @@ async function computeFastStreetRoutes({ start, end, night, zoneIdx, dangerZones
     throw new Error('Could not fetch real road geometry. Please check your internet connection.');
   }
 
-  // Normalize risk scores relative to the local corridor (95th percentile = 1.0)
   allSegRisks.sort((a, b) => a - b);
   const scale = allSegRisks[Math.floor(allSegRisks.length * 0.95)] || allSegRisks[allSegRisks.length - 1] || 1;
   const normFactor = scale > 1e-9 ? scale : 1;
@@ -355,7 +350,6 @@ async function computeFastStreetRoutes({ start, end, night, zoneIdx, dangerZones
     c.segRisks = c.rawRisks.map((v) => Math.min(1, v / normFactor));
   }
 
-  // Run Weighted Dijkstra across the real-street graph for all 3 user profiles
   const routes = PROFILES.map((prof) => {
     const res = runDijkstraOnCorridors(corridors, prof.alpha, mult);
     return {
@@ -502,6 +496,26 @@ export default function SafeRoutes() {
     })();
     return () => ctrl.abort();
   }, []);
+
+  const routerLocation = useLocation();
+  const appliedStateRef = useRef(false);
+
+  useEffect(() => {
+    if (appliedStateRef.current) return;
+    const incoming = routerLocation.state;
+    if (!incoming?.destination) return;
+
+    const { lat, lng, label } = incoming.destination;
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      appliedStateRef.current = true;
+      setEnd({ lat, lng });
+      setEndText(label || fmtCoord({ lat, lng }));
+      if (incoming.timeOfDay === 'Night' || incoming.timeOfDay === 'Day') {
+        setTimeOfDay(incoming.timeOfDay);
+      }
+      setNotice(`Destination pre-filled from AI Risk Predictor: ${label}. Select or click a departure point A.`);
+    }
+  }, [routerLocation.state]);
 
   const zonesNorm = useMemo(
     () =>
@@ -725,7 +739,7 @@ export default function SafeRoutes() {
             </div>
           )}
 
-          {!computing && notice && computedRoutes.length > 0 && (
+          {!computing && notice && (
             <div className="flex gap-2 p-3 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-200 text-xs">
               <Info size={15} className="shrink-0 mt-0.5" />
               <span>{notice}</span>

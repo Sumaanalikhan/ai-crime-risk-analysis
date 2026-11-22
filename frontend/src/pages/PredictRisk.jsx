@@ -212,7 +212,7 @@ function HourlyRiskChart({ baseScore, selectedHour, onSelectHour }) {
         <div className="flex justify-between text-[10px] font-bold text-slate-500 px-2">
           <span>00:00</span>
           <span>06:00</span>
-          <span>12:00</span>
+          <span>12:00</span>  
           <span>18:00</span>
           <span>23:00</span>
         </div>
@@ -751,7 +751,22 @@ export default function PredictRisk() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => navigate('/safe-routes')}
+                    onClick={() => {
+                      const targetZone = matchedZone || previewZone;
+                      const isNightHour = selectedHour >= 18 || selectedHour <= 5;
+                      navigate('/safe-routes', {
+                        state: targetZone
+                          ? {
+                              destination: {
+                                lat: parseFloat(targetZone.lat),
+                                lng: parseFloat(targetZone.lng),
+                                label: `${targetZone.name} (${targetZone.town})`,
+                              },
+                              timeOfDay: isNightHour ? 'Night' : 'Day',
+                            }
+                          : undefined,
+                      });
+                    }}
                     className="px-4 py-2.5 rounded-xl bg-[#3b82f6] hover:bg-blue-600 text-xs font-bold text-white flex items-center gap-2 transition-all shadow-lg shadow-blue-500/20"
                   >
                     <Navigation size={14} /> Plan Safe Route Here
