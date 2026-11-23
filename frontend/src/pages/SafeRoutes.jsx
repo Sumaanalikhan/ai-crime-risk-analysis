@@ -27,6 +27,7 @@ import {
   ArrowUpDown,
   Loader2,
   AlertTriangle,
+  LocateFixed,
 } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import L from 'leaflet';
@@ -381,15 +382,27 @@ async function computeFastStreetRoutes({ start, end, night, zoneIdx, dangerZones
 // ==========================================
 // MAP HELPERS
 // ==========================================
-function FitRouteBounds({ routes, sig }) {
+function FitRouteBounds({ routes, sig, singlePin }) {
   const map = useMap();
   const last = useRef(null);
+  const lastPin = useRef(null);
+
   useEffect(() => {
-    if (!sig || !routes.length || last.current === sig) return;
-    last.current = sig;
-    const pts = routes.flatMap((r) => r.coords);
-    if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 15 });
-  }, [routes, sig, map]);
+    if (sig && routes.length && last.current !== sig) {
+      last.current = sig;
+      const pts = routes.flatMap((r) => r.coords);
+      if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 15 });
+      return;
+    }
+    if (!sig && singlePin) {
+      const pinKey = `${singlePin.lat.toFixed(5)}:${singlePin.lng.toFixed(5)}`;
+      if (lastPin.current !== pinKey) {
+        lastPin.current = pinKey;
+        map.flyTo([singlePin.lat, singlePin.lng], 14, { duration: 1.0 });
+      }
+    }
+  }, [routes, sig, singlePin, map]);
+
   return null;
 }
 
@@ -635,6 +648,28 @@ export default function SafeRoutes() {
     setEndText(startText);
   };
 
+  const useCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setError('Geolocation is not supported by your browser.');
+      return;
+    }
+    setError('');
+    setResolving(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setStart(p);
+        setStartText(fmtCoord(p));
+        setResolving(false);
+      },
+      () => {
+        setError('Unable to access your GPS location. Please allow location permissions or pick an area.');
+        setResolving(false);
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
+
   const busy = computing || resolving;
   const activeRoute = computedRoutes.find((r) => r.key === selectedProfile) || computedRoutes[0];
   const routesSig = computedRoutes.length ? computedRoutes.map((r) => r.sig).join('|') : null;
@@ -685,8 +720,17 @@ export default function SafeRoutes() {
                     placeholder="Departure (e.g. Landhi...)"
                     value={startText}
                     onChange={(e) => setStartText(e.target.value)}
-                    className="w-full bg-[#1E293B] border border-white/10 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-green-500"
+                    className="w-full bg-[#1E293B] border border-white/10 rounded-xl pl-10 pr-10 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-green-500"
                   />
+                  <button
+                    type="button"
+                    onClick={useCurrentLocation}
+                    disabled={busy}
+                    title="Use my current GPS location"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-green-400 hover:bg-white/5 transition-colors"
+                  >
+                    <LocateFixed size={16} />
+                  </button>
                 </div>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-black flex items-center justify-center">
@@ -1015,7 +1059,11 @@ export default function SafeRoutes() {
               setEndText={setEndText}
               resetRoute={resetRoute}
             />
-            <FitRouteBounds routes={computedRoutes} sig={routesSig} />
+            <FitRouteBounds
+              routes={computedRoutes}
+              sig={routesSig}
+              singlePin={!start && end ? end : null}
+            />
           </MapContainer>
         </div>
       </div>
