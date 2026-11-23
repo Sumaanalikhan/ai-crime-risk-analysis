@@ -750,27 +750,29 @@ export default function PredictRisk() {
                     <Layers size={14} /> Open Thermal Heatmap
                   </button>
                   <button
-                    type="button"
-                    onClick={() => {
-                      const targetZone = matchedZone || previewZone;
-                      const isNightHour = selectedHour >= 18 || selectedHour <= 5;
-                      navigate('/safe-routes', {
-                        state: targetZone
-                          ? {
-                              destination: {
-                                lat: parseFloat(targetZone.lat),
-                                lng: parseFloat(targetZone.lng),
-                                label: `${targetZone.name} (${targetZone.town})`,
-                              },
-                              timeOfDay: isNightHour ? 'Night' : 'Day',
-                            }
-                          : undefined,
-                      });
-                    }}
-                    className="px-4 py-2.5 rounded-xl bg-[#3b82f6] hover:bg-blue-600 text-xs font-bold text-white flex items-center gap-2 transition-all shadow-lg shadow-blue-500/20"
-                  >
-                    <Navigation size={14} /> Plan Safe Route Here
-                  </button>
+  type="button"
+  onClick={() => {
+    const targetZone = matchedZone || previewZone;
+    if (targetZone) {
+      const isNightHour = selectedHour >= 18 || selectedHour <= 5;
+      sessionStorage.setItem(
+        'cg_pending_route',
+        JSON.stringify({
+          lat: parseFloat(targetZone.lat),
+          lng: parseFloat(targetZone.lng),
+          label: `${targetZone.name} (${targetZone.town})`,
+          timeOfDay: isNightHour ? 'Night' : 'Day',
+        })
+      );
+    } else {
+      sessionStorage.removeItem('cg_pending_route');
+    }
+    navigate('/routes');
+  }}
+  className="px-4 py-2.5 rounded-xl bg-[#3b82f6] hover:bg-blue-600 text-xs font-bold text-white flex items-center gap-2 transition-all shadow-lg shadow-blue-500/20"
+>
+  <Navigation size={14} /> Plan Safe Route Here
+</button>
                 </div>
               </div>
             )}
