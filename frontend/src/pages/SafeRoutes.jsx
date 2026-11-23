@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
 import {
   MapContainer,
   TileLayer,
@@ -497,25 +496,29 @@ export default function SafeRoutes() {
     return () => ctrl.abort();
   }, []);
 
-  const routerLocation = useLocation();
-  const appliedStateRef = useRef(false);
+  const appliedStorageRef = useRef(false);
 
   useEffect(() => {
-    if (appliedStateRef.current) return;
-    const incoming = routerLocation.state;
-    if (!incoming?.destination) return;
+    if (appliedStorageRef.current) return;
+    const raw = sessionStorage.getItem('cg_pending_route');
+    if (!raw) return;
 
-    const { lat, lng, label } = incoming.destination;
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      appliedStateRef.current = true;
-      setEnd({ lat, lng });
-      setEndText(label || fmtCoord({ lat, lng }));
-      if (incoming.timeOfDay === 'Night' || incoming.timeOfDay === 'Day') {
-        setTimeOfDay(incoming.timeOfDay);
+    appliedStorageRef.current = true;
+    sessionStorage.removeItem('cg_pending_route');
+    try {
+      const incoming = JSON.parse(raw);
+      if (Number.isFinite(incoming.lat) && Number.isFinite(incoming.lng)) {
+        setEnd({ lat: incoming.lat, lng: incoming.lng });
+        setEndText(incoming.label || fmtCoord({ lat: incoming.lat, lng: incoming.lng }));
+        if (incoming.timeOfDay === 'Night' || incoming.timeOfDay === 'Day') {
+          setTimeOfDay(incoming.timeOfDay);
+        }
+        setNotice(`Destination pre-filled: ${incoming.label}. Select or click departure point A.`);
       }
-      setNotice(`Destination pre-filled from AI Risk Predictor: ${label}. Select or click a departure point A.`);
+    } catch (err) {
+      console.error('Failed to parse pending route:', err);
     }
-  }, [routerLocation.state]);
+  }, []);
 
   const zonesNorm = useMemo(
     () =>
