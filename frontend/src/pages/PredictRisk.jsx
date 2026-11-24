@@ -212,7 +212,7 @@ function HourlyRiskChart({ baseScore, selectedHour, onSelectHour }) {
         <div className="flex justify-between text-[10px] font-bold text-slate-500 px-2">
           <span>00:00</span>
           <span>06:00</span>
-          <span>12:00</span>  
+          <span>12:00</span>
           <span>18:00</span>
           <span>23:00</span>
         </div>
@@ -256,6 +256,25 @@ export default function PredictRisk() {
     };
     fetchZones();
   }, []);
+
+  // Automatically load & analyze neighborhood when navigated from Heatmap
+  useEffect(() => {
+    if (zones.length === 0) return;
+    const raw = sessionStorage.getItem('cg_pending_predict');
+    if (!raw) return;
+
+    sessionStorage.removeItem('cg_pending_predict');
+    try {
+      const incoming = JSON.parse(raw);
+      if (incoming.label) {
+        setLocation(incoming.label);
+        runPrediction(incoming.label, time);
+      }
+    } catch (err) {
+      console.error('Failed to parse pending prediction:', err);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zones]);
 
   const areaSuggestions = useMemo(() => {
     return zones
@@ -750,29 +769,29 @@ export default function PredictRisk() {
                     <Layers size={14} /> Open Thermal Heatmap
                   </button>
                   <button
-  type="button"
-  onClick={() => {
-    const targetZone = matchedZone || previewZone;
-    if (targetZone) {
-      const isNightHour = selectedHour >= 18 || selectedHour <= 5;
-      sessionStorage.setItem(
-        'cg_pending_route',
-        JSON.stringify({
-          lat: parseFloat(targetZone.lat),
-          lng: parseFloat(targetZone.lng),
-          label: `${targetZone.name} (${targetZone.town})`,
-          timeOfDay: isNightHour ? 'Night' : 'Day',
-        })
-      );
-    } else {
-      sessionStorage.removeItem('cg_pending_route');
-    }
-    navigate('/routes');
-  }}
-  className="px-4 py-2.5 rounded-xl bg-[#3b82f6] hover:bg-blue-600 text-xs font-bold text-white flex items-center gap-2 transition-all shadow-lg shadow-blue-500/20"
->
-  <Navigation size={14} /> Plan Safe Route Here
-</button>
+                    type="button"
+                    onClick={() => {
+                      const targetZone = matchedZone || previewZone;
+                      if (targetZone) {
+                        const isNightHour = selectedHour >= 18 || selectedHour <= 5;
+                        sessionStorage.setItem(
+                          'cg_pending_route',
+                          JSON.stringify({
+                            lat: parseFloat(targetZone.lat),
+                            lng: parseFloat(targetZone.lng),
+                            label: `${targetZone.name} (${targetZone.town})`,
+                            timeOfDay: isNightHour ? 'Night' : 'Day',
+                          })
+                        );
+                      } else {
+                        sessionStorage.removeItem('cg_pending_route');
+                      }
+                      navigate('/routes');
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-[#3b82f6] hover:bg-blue-600 text-xs font-bold text-white flex items-center gap-2 transition-all shadow-lg shadow-blue-500/20"
+                  >
+                    <Navigation size={14} /> Plan Safe Route Here
+                  </button>
                 </div>
               </div>
             )}
