@@ -1,5 +1,6 @@
 // src/pages/Heatmap.jsx
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   MapContainer,
   TileLayer,
@@ -9,7 +10,7 @@ import {
   useMap,
   useMapEvents,
 } from 'react-leaflet';
-import { Filter, ShieldAlert, Layers } from 'lucide-react';
+import { Filter, ShieldAlert, Layers, Navigation, Activity, X } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -273,10 +274,12 @@ function LabelLayer({ zones }) {
 // PAGE
 // ==========================================
 export default function Heatmap() {
+  const navigate = useNavigate();
   const [zones, setZones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedRisk, setSelectedRisk] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
+  const [selectedZone, setSelectedZone] = useState(null);
 
   useEffect(() => {
     const fetchHeatmapData = async () => {
@@ -323,6 +326,21 @@ export default function Heatmap() {
     [zones]
   );
 
+  const handlePlanSafeRoute = (zone) => {
+    const currentHour = new Date().getHours();
+    const isNightHour = currentHour >= 18 || currentHour <= 5;
+    sessionStorage.setItem(
+      'cg_pending_route',
+      JSON.stringify({
+        lat: parseFloat(zone.lat),
+        lng: parseFloat(zone.lng),
+        label: `${zone.name} (${zone.town})`,
+        timeOfDay: isNightHour ? 'Night' : 'Day',
+      })
+    );
+    navigate('/routes');
+  };
+
   return (
     <div className="min-h-screen lg:h-screen lg:overflow-hidden bg-[#0F172A] text-[#F1F5F9] flex flex-col font-sans">
       <style>{`
@@ -360,7 +378,7 @@ export default function Heatmap() {
 
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row relative overflow-hidden">
         {/* Left Sidebar */}
-        <div className="w-full lg:w-96 bg-[#1E293B] border-r border-white/10 p-6 flex flex-col gap-6 z-10 overflow-y-auto">
+        <div className="w-full lg:w-96 bg-[#1E293B] border-r border-white/10 p-6 flex flex-col gap-5 z-10 overflow-y-auto">
           <div>
             <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#0F172A] border border-white/10 text-[#F97316] text-xs font-bold tracking-widest uppercase mb-3">
               <Layers size={14} /> Spatial Mapping
@@ -370,6 +388,53 @@ export default function Heatmap() {
               Real-time crime density visualizer aggregated from 60,000 Karachi records.
             </p>
           </div>
+
+          {/* Selected Zone Quick-Action Card */}
+          {selectedZone && (
+            <div className="bg-[#0F172A] border border-[#F97316]/50 rounded-2xl p-4 space-y-3 shadow-xl">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="inline-flex items-center justify-center rounded-full text-white text-[10px] font-extrabold px-2 h-4"
+                      style={{ background: riskColor(selectedZone.risk) }}
+                    >
+                      #{selectedZone.rank}
+                    </span>
+                    <span className="text-sm font-black text-white">{selectedZone.name}</span>
+                  </div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mt-1">
+                    {selectedZone.town} • {selectedZone.type} ({selectedZone.avgScore}/100)
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedZone(null)}
+                  className="text-slate-400 hover:text-white p-1"
+                  title="Close zone details"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => handlePlanSafeRoute(selectedZone)}
+                  className="flex-1 bg-[#3b82f6] hover:bg-blue-600 text-white py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all"
+                >
+                  <Navigation size={13} /> Plan Safe Route
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/predict')}
+                  className="bg-[#1E293B] hover:bg-slate-700 text-slate-200 py-2 px-3 rounded-xl text-xs font-bold border border-white/10 flex items-center justify-center gap-1.5 transition-all"
+                >
+                  <Activity size={13} /> Predictor
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-3">
             <label className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider flex items-center gap-2">
@@ -441,7 +506,7 @@ export default function Heatmap() {
               <span>High</span>
             </div>
             <div className="mt-3 text-[10px] text-[#64748B] leading-relaxed">
-              Numbered badges rank districts by risk (1 = highest). More labels appear as you zoom in.
+              Numbered badges rank districts by risk (1 = highest). Click any dot to plan a safe route there.
             </div>
           </div>
         </div>
@@ -478,49 +543,58 @@ export default function Heatmap() {
 
             <TrueThermalLayer zones={filteredZones} />
 
-            {/* Small dots with rich hover details */}
-            {ranked.map((zone, i) => (
-              <CircleMarker
-                key={`dot-${zone.id ?? i}`}
-                center={[parseFloat(zone.lat), parseFloat(zone.lng)]}
-                radius={3.5}
-                pathOptions={{
-                  color: '#0b1220',
-                  weight: 1.5,
-                  fillColor: '#ffffff',
-                  fillOpacity: 1,
-                }}
-              >
-                <Tooltip direction="top" offset={[0, -6]} opacity={1} className="cg-tip">
-                  <div className="font-sans min-w-[150px]">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="inline-flex items-center justify-center rounded-full text-white text-[10px] font-extrabold px-1.5 h-4"
-                        style={{ background: riskColor(zone.risk) }}
-                      >
-                        #{zone.rank}
-                      </span>
-                      <span className="font-bold text-sm text-white">{zone.name}</span>
+            {/* Small dots with rich hover details & click selection */}
+            {ranked.map((zone, i) => {
+              const isSelected = selectedZone?.name === zone.name;
+              return (
+                <CircleMarker
+                  key={`dot-${zone.id ?? i}`}
+                  center={[parseFloat(zone.lat), parseFloat(zone.lng)]}
+                  radius={isSelected ? 7 : 3.5}
+                  pathOptions={{
+                    color: isSelected ? '#F97316' : '#0b1220',
+                    weight: isSelected ? 2.5 : 1.5,
+                    fillColor: isSelected ? '#3b82f6' : '#ffffff',
+                    fillOpacity: 1,
+                  }}
+                  eventHandlers={{
+                    click: () => setSelectedZone(zone),
+                  }}
+                >
+                  <Tooltip direction="top" offset={[0, -6]} opacity={1} className="cg-tip">
+                    <div className="font-sans min-w-[150px]">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="inline-flex items-center justify-center rounded-full text-white text-[10px] font-extrabold px-1.5 h-4"
+                          style={{ background: riskColor(zone.risk) }}
+                        >
+                          #{zone.rank}
+                        </span>
+                        <span className="font-bold text-sm text-white">{zone.name}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">
+                        {zone.town}
+                      </div>
+                      <div className="text-xs text-slate-300 mt-1.5">
+                        Dominant crime: <b className="text-white">{zone.type}</b>
+                      </div>
+                      <div className="text-xs text-slate-300">
+                        Risk index: <b className="text-white">{zone.avgScore} / 100</b>
+                      </div>
+                      <div className="text-[10px] text-[#3b82f6] font-bold mt-1.5">
+                        Click dot to select & plan route →
+                      </div>
                     </div>
-                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">
-                      {zone.town}
-                    </div>
-                    <div className="text-xs text-slate-300 mt-1.5">
-                      Dominant crime: <b className="text-white">{zone.type}</b>
-                    </div>
-                    <div className="text-xs text-slate-300">
-                      Risk index: <b className="text-white">{zone.avgScore} / 100</b>
-                    </div>
-                  </div>
-                </Tooltip>
-              </CircleMarker>
-            ))}
+                  </Tooltip>
+                </CircleMarker>
+              );
+            })}
 
             <LabelLayer zones={ranked} />
           </MapContainer>
 
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] rounded-full bg-[#0F172A]/90 border border-white/10 px-5 py-2.5 text-xs text-slate-300 backdrop-blur pointer-events-none whitespace-nowrap">
-            Hover any dot to view district details
+            Hover any dot for details • Click a dot to plan a safe route
           </div>
         </div>
       </div>
