@@ -763,7 +763,22 @@ export default function PredictRisk() {
                 <div className="flex flex-wrap gap-3 pt-2 border-t border-white/10 justify-end">
                   <button
                     type="button"
-                    onClick={() => navigate('/heatmap')}
+                    onClick={() => {
+                      const targetZone = matchedZone || previewZone;
+                      if (targetZone) {
+                        sessionStorage.setItem(
+                          'cg_pending_heatmap',
+                          JSON.stringify({
+                            name: targetZone.name,
+                            lat: parseFloat(targetZone.lat),
+                            lng: parseFloat(targetZone.lng),
+                          })
+                        );
+                      } else {
+                        sessionStorage.removeItem('cg_pending_heatmap');
+                      }
+                      navigate('/heatmap');
+                    }}
                     className="px-4 py-2.5 rounded-xl bg-[#0F172A] hover:bg-slate-800 border border-white/10 text-xs font-bold text-slate-200 flex items-center gap-2 transition-all"
                   >
                     <Layers size={14} /> Open Thermal Heatmap
