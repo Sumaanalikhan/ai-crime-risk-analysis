@@ -270,6 +270,19 @@ function LabelLayer({ zones }) {
   );
 }
 
+function FlyToHeatmapZone({ target }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!target) return;
+    const lat = parseFloat(target.lat);
+    const lng = parseFloat(target.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      map.flyTo([lat, lng], 14, { duration: 1.1 });
+    }
+  }, [target, map]);
+  return null;
+}
+
 // ==========================================
 // PAGE
 // ==========================================
@@ -280,6 +293,7 @@ export default function Heatmap() {
   const [selectedRisk, setSelectedRisk] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
   const [selectedZone, setSelectedZone] = useState(null);
+  const [flyTarget, setFlyTarget] = useState(null);
 
   useEffect(() => {
     const fetchHeatmapData = async () => {
@@ -316,6 +330,27 @@ export default function Heatmap() {
         .map((z, i) => ({ ...z, rank: i + 1 })),
     [filteredZones]
   );
+
+  // Focus & select zone when navigated from PredictRisk
+  useEffect(() => {
+    if (ranked.length === 0) return;
+    const raw = sessionStorage.getItem('cg_pending_heatmap');
+    if (!raw) return;
+
+    sessionStorage.removeItem('cg_pending_heatmap');
+    try {
+      const incoming = JSON.parse(raw);
+      const match = ranked.find((z) => z.name === incoming.name);
+      if (match) {
+        setSelectedZone(match);
+        setFlyTarget(match);
+      } else if (Number.isFinite(incoming.lat) && Number.isFinite(incoming.lng)) {
+        setFlyTarget({ lat: incoming.lat, lng: incoming.lng });
+      }
+    } catch (err) {
+      console.error('Failed to parse pending heatmap target:', err);
+    }
+  }, [ranked]);
 
   const counts = useMemo(
     () => ({
@@ -601,6 +636,7 @@ export default function Heatmap() {
             })}
 
             <LabelLayer zones={ranked} />
+            <FlyToHeatmapZone target={flyTarget} />
           </MapContainer>
 
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] rounded-full bg-[#0F172A]/90 border border-white/10 px-5 py-2.5 text-xs text-slate-300 backdrop-blur pointer-events-none whitespace-nowrap">
