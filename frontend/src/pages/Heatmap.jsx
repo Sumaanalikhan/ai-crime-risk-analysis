@@ -10,7 +10,16 @@ import {
   useMap,
   useMapEvents,
 } from 'react-leaflet';
-import { Filter, ShieldAlert, Layers, Navigation, Activity, X } from 'lucide-react';
+import {
+  Filter,
+  ShieldAlert,
+  Layers,
+  Navigation,
+  Activity,
+  X,
+  Search,
+  Flame,
+} from 'lucide-react';
 import Navbar from '../components/Navbar';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -292,6 +301,7 @@ export default function Heatmap() {
   const [loading, setLoading] = useState(true);
   const [selectedRisk, setSelectedRisk] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedZone, setSelectedZone] = useState(null);
   const [flyTarget, setFlyTarget] = useState(null);
 
@@ -360,6 +370,20 @@ export default function Heatmap() {
     }),
     [zones]
   );
+
+  const handleZoneJump = (e) => {
+    e.preventDefault();
+    const clean = searchQuery.trim().toLowerCase();
+    if (!clean) return;
+    const match =
+      ranked.find((z) => `${z.name} (${z.town})`.toLowerCase() === clean) ||
+      ranked.find((z) => z.name.toLowerCase() === clean) ||
+      ranked.find((z) => z.name.toLowerCase().includes(clean) || z.town.toLowerCase().includes(clean));
+    if (match) {
+      setSelectedZone(match);
+      setFlyTarget({ ...match, _ts: Date.now() });
+    }
+  };
 
   const handlePlanSafeRoute = (zone) => {
     const currentHour = new Date().getHours();
@@ -434,6 +458,34 @@ export default function Heatmap() {
             </p>
           </div>
 
+          {/* Quick Zone Jump Search */}
+          <form onSubmit={handleZoneJump} className="space-y-2">
+            <datalist id="heatmap-zone-list">
+              {ranked.map((z) => (
+                <option key={z.id ?? z.name} value={`${z.name} (${z.town})`} />
+              ))}
+            </datalist>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                <input
+                  type="text"
+                  list="heatmap-zone-list"
+                  placeholder="Jump to neighborhood..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-[#0F172A] border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#F97316]"
+                />
+              </div>
+              <button
+                type="submit"
+                className="px-3.5 py-2.5 rounded-xl bg-[#F97316] hover:bg-orange-600 text-xs font-bold text-white transition-all"
+              >
+                Locate
+              </button>
+            </div>
+          </form>
+
           {/* Selected Zone Quick-Action Card */}
           {selectedZone && (
             <div className="bg-[#0F172A] border border-[#F97316]/50 rounded-2xl p-4 space-y-3 shadow-xl">
@@ -477,6 +529,35 @@ export default function Heatmap() {
                 >
                   <Activity size={13} /> Predictor
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* Top 5 Hotspots Leaderboard Chips */}
+          {ranked.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider flex items-center gap-1.5">
+                <Flame size={14} className="text-red-500" /> Top Risk Hotspots
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {ranked.slice(0, 5).map((z) => (
+                  <button
+                    key={z.id ?? z.name}
+                    type="button"
+                    onClick={() => {
+                      setSelectedZone(z);
+                      setFlyTarget({ ...z, _ts: Date.now() });
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border transition-all flex items-center gap-1.5 ${
+                      selectedZone?.name === z.name
+                        ? 'bg-red-500/20 border-red-500 text-white'
+                        : 'bg-[#0F172A] border-white/10 text-slate-300 hover:border-white/30'
+                    }`}
+                  >
+                    <span className="text-red-400 font-black">#{z.rank}</span>
+                    <span className="truncate max-w-[115px]">{z.name}</span>
+                  </button>
+                ))}
               </div>
             </div>
           )}
