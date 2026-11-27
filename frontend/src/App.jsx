@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import SafeRoutes from './pages/SafeRoutes';
@@ -17,19 +17,26 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/predict" element={<PredictRisk />} />
         <Route path="/routes" element={<SafeRoutes />} />
+        <Route path="/safe-routes" element={<Navigate replace to="/routes" />} />
         <Route path="/heatmap" element={<Heatmap />} />
-        
+
         {/* Authentication Routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
-        
+
         {/* Protected Route - Only for logged-in users managing saved data */}
-        <Route path="/dashboard" element={
-          <ProtectedRoute>
-            <Dashboard />
-          </ProtectedRoute>
-        } />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Catch-all fallback to prevent blank screens on unknown URLs */}
+        <Route path="*" element={<Navigate replace to="/" />} />
       </Routes>
     </Router>
   );
