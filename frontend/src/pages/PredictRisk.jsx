@@ -26,6 +26,9 @@ import {
   Compass,
   ShieldCheck,
   Radio,
+  BarChart3,
+  Share2,
+  Check,
 } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import 'leaflet/dist/leaflet.css';
@@ -241,6 +244,7 @@ export default function PredictRisk() {
   const [result, setResult] = useState(null);
   const [matchedZone, setMatchedZone] = useState(null);
   const [error, setError] = useState(null);
+  const [copiedReport, setCopiedReport] = useState(false);
 
   useEffect(() => {
     const fetchZones = async () => {
@@ -303,6 +307,35 @@ export default function PredictRisk() {
       matchedZone
     );
   }, [location, zones, matchedZone]);
+
+  // Town & City benchmark metrics
+  const benchmarkStats = useMemo(() => {
+    if (!zones.length) return null;
+    const validScores = zones.map((z) => parseFloat(z.avgScore)).filter(Number.isFinite);
+    const cityAvg = validScores.length
+      ? Math.round(validScores.reduce((sum, s) => sum + s, 0) / validScores.length)
+      : 50;
+
+    if (!matchedZone) return { cityAvg, townAvg: null, townRank: null, townTotal: 0 };
+
+    const townPeers = zones
+      .filter((z) => z.town === matchedZone.town)
+      .sort((a, b) => parseFloat(b.avgScore) - parseFloat(a.avgScore));
+
+    const townScores = townPeers.map((z) => parseFloat(z.avgScore)).filter(Number.isFinite);
+    const townAvg = townScores.length
+      ? Math.round(townScores.reduce((sum, s) => sum + s, 0) / townScores.length)
+      : cityAvg;
+
+    const townRank = townPeers.findIndex((z) => z.name === matchedZone.name) + 1;
+
+    return {
+      cityAvg,
+      townAvg,
+      townRank: townRank > 0 ? townRank : null,
+      townTotal: townPeers.length,
+    };
+  }, [zones, matchedZone]);
 
   // Nearby subdivisions within 3.5km using Turf.js
   const nearbyZones = useMemo(() => {
@@ -396,6 +429,26 @@ export default function PredictRisk() {
     setLocation(label);
     setMatchedZone(zone);
     runPrediction(label, time);
+  };
+
+  const handleCopyRiskReport = async () => {
+    if (!result) return;
+    const lines = [
+      `Karachi AI Crime Risk Report`,
+      `Area: ${result.location}${matchedZone ? ` (${matchedZone.town})` : ''}`,
+      `Time: ${result.time}`,
+      `Risk Score: ${result.riskScore}/100 (${result.status})`,
+      matchedZone ? `Dominant Threat: ${matchedZone.type} (${(matchedZone.incidents || 0).toLocaleString()} cases)` : null,
+      `Advisory: ${result.advice}`,
+    ].filter(Boolean);
+
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setCopiedReport(true);
+      setTimeout(() => setCopiedReport(false), 2500);
+    } catch {
+      setError('Could not copy risk report to clipboard.');
+    }
   };
 
   const activeMeta = result ? riskMeta(result.riskScore) : null;
@@ -717,6 +770,43 @@ export default function PredictRisk() {
                   </div>
                 )}
 
+                {/* Town & City Benchmark Comparison */}
+                {matchedZone && benchmarkStats && (
+                  <div className="bg-[#0F172A] border border-white/10 rounded-2xl p-4 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider flex items-center gap-2">
+                        <BarChart3 size={14} className="text-[#3b82f6]" /> Town & City Risk Benchmark
+                      </div>
+                      {benchmarkStats.townRank && (
+                        <span className="text-[11px] font-bold text-slate-300">
+                          Rank #{benchmarkStats.townRank} of {benchmarkStats.townTotal} in {matchedZone.town}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="space-y-2.5 text-xs">
+                      {[
+                        { label: matchedZone.name, score: Math.round(parseFloat(matchedZone.avgScore)), color: activeMeta.color },
+                        { label: `${matchedZone.town} Average`, score: benchmarkStats.townAvg, color: '#3b82f6' },
+                        { label: 'Karachi City Average', score: benchmarkStats.cityAvg, color: '#64748b' },
+                      ].map((bar) => (
+                        <div key={bar.label} className="space-y-1">
+                          <div className="flex justify-between text-[11px]">
+                            <span className="font-bold text-slate-200 truncate pr-2">{bar.label}</span>
+                            <span className="font-black text-white">{bar.score} / 100</span>
+                          </div>
+                          <div className="h-2 w-full bg-[#1E293B] rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(100, Math.max(4, bar.score))}%`, backgroundColor: bar.color }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* 24-Hour Temporal Risk Curve */}
                 <HourlyRiskChart
                   baseScore={baseScoreForChart}
@@ -759,8 +849,23 @@ export default function PredictRisk() {
                   </div>
                 )}
 
-                {/* Cross-Navigation Actions */}
+                {/* Cross-Navigation & Share Actions */}
                 <div className="flex flex-wrap gap-3 pt-2 border-t border-white/10 justify-end">
+                  <button
+                    type="button"
+                    onClick={handleCopyRiskReport}
+                    className="px-4 py-2.5 rounded-xl bg-[#0F172A] hover:bg-slate-800 border border-white/10 text-xs font-bold text-slate-200 flex items-center gap-2 transition-all"
+                  >
+                    {copiedReport ? (
+                      <>
+                        <Check size={14} className="text-green-400" /> Copied Report
+                      </>
+                    ) : (
+                      <>
+                        <Share2 size={14} className="text-[#F97316]" /> Copy Risk Report
+                      </>
+                    )}
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
