@@ -28,6 +28,8 @@ import {
   Loader2,
   AlertTriangle,
   LocateFixed,
+  Share2,
+  Check,
 } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import L from 'leaflet';
@@ -483,6 +485,7 @@ export default function SafeRoutes() {
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [copiedBrief, setCopiedBrief] = useState(false);
 
   const [mapTheme, setMapTheme] = useState('light');
   const [timeOfDay, setTimeOfDay] = useState('Day');
@@ -677,6 +680,32 @@ export default function SafeRoutes() {
 
   const exposureLabel = (v) =>
     v < 25 ? { t: 'Low', c: 'text-green-400' } : v < 50 ? { t: 'Moderate', c: 'text-amber-400' } : { t: 'High', c: 'text-red-400' };
+
+  const handleCopyBriefing = async () => {
+    if (!activeRoute) return;
+    const ex = exposureLabel(activeRoute.exposure).t;
+    const hotspotSummary =
+      activeRoute.warnings.length > 0
+        ? activeRoute.warnings.map((w) => `${w.name} (${w.type}, Score ${w.avgScore})`).join('; ')
+        : 'None (Hotspot-free corridor)';
+
+    const lines = [
+      `Karachi Safe Route Briefing (${timeOfDay} Travel)`,
+      `From: ${startText || (start ? fmtCoord(start) : 'Pin A')}`,
+      `To: ${endText || (end ? fmtCoord(end) : 'Pin B')}`,
+      `Profile: ${activeRoute.title} (${ex} Risk)`,
+      `Est. Distance & Time: ${activeRoute.distance} km • ${activeRoute.time} min`,
+      `Nearby High-Risk Zones: ${hotspotSummary}`,
+    ];
+
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setCopiedBrief(true);
+      setTimeout(() => setCopiedBrief(false), 2500);
+    } catch {
+      setError('Could not copy route briefing to clipboard.');
+    }
+  };
 
   const drawOrder = [...computedRoutes].sort((a, b) =>
     a.key === activeRoute?.key ? 1 : b.key === activeRoute?.key ? -1 : 0
@@ -893,8 +922,26 @@ export default function SafeRoutes() {
           {/* Selected Route Analysis */}
           {activeRoute && (
             <div className="bg-[#0F172A] border border-white/10 rounded-2xl p-4 space-y-3 mt-auto">
-              <div className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider flex items-center gap-2">
-                <Info size={14} /> Selected: {activeRoute.title}
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-bold text-[#94A3B8] uppercase tracking-wider flex items-center gap-2">
+                  <Info size={14} /> Selected: {activeRoute.title}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyBriefing}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#1E293B] hover:bg-slate-700 border border-white/10 text-[11px] font-bold text-slate-200 transition-colors"
+                  title="Copy route safety summary to clipboard"
+                >
+                  {copiedBrief ? (
+                    <>
+                      <Check size={12} className="text-green-400" /> Copied
+                    </>
+                  ) : (
+                    <>
+                      <Share2 size={12} className="text-[#3b82f6]" /> Share Brief
+                    </>
+                  )}
+                </button>
               </div>
 
               {activeRoute.warnings.length > 0 ? (
