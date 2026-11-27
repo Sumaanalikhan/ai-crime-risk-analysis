@@ -33,9 +33,9 @@ import {
 import Navbar from '../components/Navbar';
 import 'leaflet/dist/leaflet.css';
 import * as turf from '@turf/turf';
-
-const API_HEATMAP = 'http://localhost:5000/api/heatmap';
-const API_PREDICT = 'http://localhost:5000/api/predict';
+import { ENDPOINTS } from '../config/api';
+const API_HEATMAP = ENDPOINTS.HEATMAP;
+const API_PREDICT = ENDPOINTS.PREDICT;
 const KARACHI_CENTER = [24.89, 67.07];
 
 // Smoothly flies the tactical map to the selected or predicted neighborhood

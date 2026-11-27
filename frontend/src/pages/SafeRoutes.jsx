@@ -35,8 +35,9 @@ import Navbar from '../components/Navbar';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import * as turf from '@turf/turf';
+import { ENDPOINTS } from '../config/api';
 
-const API_URL = 'http://localhost:5000/api/heatmap';
+const API_URL = ENDPOINTS.HEATMAP;
 const KARACHI_CENTER = [24.89, 67.07];
 const DANGER_THRESHOLD = 65;
 const NIGHT_MULT = 1.5;
